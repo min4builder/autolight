@@ -1,8 +1,10 @@
+{-# LANGUAGE BangPatterns #-}
 module Main where
 
 import qualified Codec.Picture as Juicy
 import qualified Codec.Picture.Types as Juicy
 import Control.Comonad (Comonad, extract, extend)
+import Data.List (foldl')
 import Data.Maybe (fromJust)
 import Data.Vector (Vector, (!), generate)
 import Data.Vector.Generic (convert)
@@ -12,26 +14,26 @@ import System.Environment (getArgs)
 --- HELPERS
 
 class PixelAdressable i where
-    pixel :: i a -> Int -> Int -> Maybe a
-
-valueOr :: Maybe a -> a -> a
-valueOr (Just a) _ = a
-valueOr Nothing a = a
+    pixel :: i a -> a -> Int -> Int -> a
+    inside :: i a -> Int -> Int -> Bool
 
 --- IMAGE HANDLING
 
 data Image a = Image {
-    iWidth :: Int,
-    iHeight :: Int,
-    iData :: Vector a }
+    iWidth :: !Int,
+    iHeight :: !Int,
+    iData :: !(Vector a) }
 
 instance Functor Image where
     fmap f (Image w h d) = Image w h (fmap f d)
 
 instance PixelAdressable Image where
-    pixel (Image w h d) x y
-        | x < 0 || y < 0 || x >= w || y >= h = Nothing
-        | otherwise = Just $ d ! (y * w + x)
+    {-# INLINEABLE pixel #-}
+    pixel img@(Image w h d) v !x !y
+        | inside img x y = d ! (y * w + x)
+        | otherwise = v
+    {-# INLINEABLE inside #-}
+    inside (Image w h _) !x !y = x >= 0 && y >= 0 && x < w && y < h
 
 readImage :: FilePath -> IO (Image Word8)
 readImage filePath = do
@@ -54,9 +56,9 @@ writePng filePath img =
 --- IMAGE COMONAD
 
 data FocusedImage a = FocusedImage {
-    unfocus :: Image a,
-    focusX :: Int,
-    focusY :: Int }
+    unfocus :: !(Image a),
+    focusX :: !Int,
+    focusY :: !Int }
 
 focus :: Image a -> FocusedImage a
 focus img
@@ -68,15 +70,14 @@ dmap f (FocusedImage a _ _) (FocusedImage b@(Image w h _) x y) =
     FocusedImage
         (Image w h $ generate (w * h) $ \index ->
             let (y', x') = index `divMod` w in
-            f (fromJust $ pixel a x' y') (fromJust $ pixel b x' y'))
+            f (pixel a undefined x' y') (pixel b undefined x' y'))
         x y
 
 instance Functor FocusedImage where
     fmap f (FocusedImage img x y) = FocusedImage (fmap f img) x y
 
 instance Comonad FocusedImage where
-    extract (FocusedImage img x y) = pixel img x y
-        `valueOr` error "Cannot focus outside the image"
+    extract (FocusedImage img x y) = pixel img undefined x y
     extend f (FocusedImage img@(Image w h _) x y) = FocusedImage
         (Image w h $ generate (w * h) $ \index ->
             let (y', x') = index `divMod` w in
@@ -84,19 +85,23 @@ instance Comonad FocusedImage where
         x y
 
 instance PixelAdressable FocusedImage where
-    pixel (FocusedImage img fx fy) x y = pixel img (fx + x) (fy + y)
+    {-# INLINEABLE pixel #-}
+    pixel (FocusedImage img fx fy) d x y = pixel img d (fx + x) (fy + y)
+    {-# INLINEABLE inside #-}
+    inside (FocusedImage img fx fy) x y = inside img (fx + x) (fy + y)
 
 --- MAIN ALGORITHM
 
-gauss2d x y r = exp (-((x**2 + y**2) / (2 * r**2))) / (2 * pi * r**2)
+gaussianBlur r = vertical . horizontal
+    where add !a !b = a + b
+          horizontal = extend $ \img -> foldl' add 0 [ pixel img 0 x 0 * gauss (fromIntegral x) | x <- [-3*(round r) .. 3*(round r)] ]
+          vertical = extend $ \img -> foldl' add 0 [ pixel img 0 0 y * gauss (fromIntegral y) | y <- [-3*(round r) .. 3*(round r)] ]
+          gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
 
-gaussianBlur r img = sum [ gauss2d x y r * (pixel img (round x) (round y) `valueOr` 0)
-    | x <- [-3*r .. 3*r], y <- [-3*r .. 3*r] ]
+gradient = extend $ \img -> (pixel img (extract img) 1 0 - extract img, pixel img (extract img) 0 1 - extract img)
 
-gradient img = (pixel img 1 0 `valueOr` extract img - extract img, pixel img 0 1 `valueOr` extract img - extract img)
-
-distance r img = minimum (r : [ sqrt (x*x + y*y) | x <- [-r .. r], y <- [-r .. r],
-    pixel img (round x) (round y) `valueOr` False ])
+distance r = extend $ \img -> minimum (r : [ sqrt (x*x + y*y) | x <- [-r .. r], y <- [-r .. r],
+    pixel img False (round x) (round y) ])
 
 clamp a b c
     | c < a = a
@@ -113,13 +118,13 @@ main = do
         (lx, ly) = (1, 1)
         image = fmap ((/ 256) . fromIntegral) $ focus img :: FocusedImage Float
 
-        blurry = extend (gaussianBlur blurr) image
-        delta = fmap (\(dx, dy) -> lx*dx + ly*dy) $ extend gradient blurry
+        blurry = gaussianBlur blurr image
+        delta = fmap (\(dx, dy) -> lx*dx + ly*dy) $ gradient blurry
 
-        dist = extend (distance distr) $ fmap (< 0.5) image
+        dist = distance distr $ fmap (< 0.5) image
         mdist = fmap (\v -> distw * ((1 / (1 + exp (-v * 6 / distr))) - 1)) dist
         shadow = fmap ((+ 0.8) . (* 0.2) . signum) $ dmap (+) delta mdist
 
-        result = dmap (*) image $ extend (gaussianBlur 1) shadow in
+        result = dmap (*) image $ gaussianBlur 1 shadow in
         (writePng b $ unfocus $ fmap (toEnum . round . (* 255) . clamp 0 1) result)
 
