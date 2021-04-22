@@ -1,96 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 module Main where
 
-import qualified Codec.Picture as Juicy
-import qualified Codec.Picture.Types as Juicy
-import Control.Comonad (Comonad, extract, extend)
+import Control.Comonad (extend, extract)
 import Data.List (foldl')
-import Data.Maybe (fromJust)
-import Data.Vector (Vector, (!), generate)
-import Data.Vector.Generic (convert)
-import Data.Word (Word8)
 import System.Environment (getArgs)
-
---- HELPERS
-
-class PixelAdressable i where
-    pixel :: i a -> a -> Int -> Int -> a
-    inside :: i a -> Int -> Int -> Bool
-
---- IMAGE HANDLING
-
-data Image a = Image {
-    iWidth :: !Int,
-    iHeight :: !Int,
-    iData :: !(Vector a) }
-
-instance Functor Image where
-    fmap f (Image w h d) = Image w h (fmap f d)
-
-instance PixelAdressable Image where
-    {-# INLINEABLE pixel #-}
-    pixel img@(Image w h d) v !x !y
-        | inside img x y = d ! (y * w + x)
-        | otherwise = v
-    {-# INLINEABLE inside #-}
-    inside (Image w h _) !x !y = x >= 0 && y >= 0 && x < w && y < h
-
-readImage :: FilePath -> IO (Image Word8)
-readImage filePath = do
-    imageR <- Juicy.readImage filePath
-    case imageR of
-        Right img ->
-            return Image { 
-                iWidth = Juicy.dynamicMap Juicy.imageWidth img,
-                iHeight = Juicy.dynamicMap Juicy.imageHeight img,
-                iData = convert $ Juicy.imageData $ Juicy.extractLumaPlane $ Juicy.convertRGB8 img }
-        Left err -> error $ "readImage: could not load image: " ++ err
-
-writePng :: FilePath -> Image Word8 -> IO ()
-writePng filePath img =
-    Juicy.writePng filePath (Juicy.Image {
-        Juicy.imageWidth = iWidth img,
-        Juicy.imageHeight = iHeight img,
-        Juicy.imageData = convert $ iData img } :: Juicy.Image Juicy.Pixel8)
-
---- IMAGE COMONAD
-
-data FocusedImage a = FocusedImage {
-    unfocus :: !(Image a),
-    focusX :: !Int,
-    focusY :: !Int }
-
-focus :: Image a -> FocusedImage a
-focus img
-    | iWidth img > 0 && iHeight img > 0 = FocusedImage img 0 0
-    | otherwise = error "Cannot focus empty images"
-
-dmap :: (a -> b -> c) -> FocusedImage a -> FocusedImage b -> FocusedImage c
-dmap f (FocusedImage a _ _) (FocusedImage b@(Image w h _) x y) =
-    FocusedImage
-        (Image w h $ generate (w * h) $ \index ->
-            let (y', x') = index `divMod` w in
-            f (pixel a undefined x' y') (pixel b undefined x' y'))
-        x y
-
-instance Functor FocusedImage where
-    fmap f (FocusedImage img x y) = FocusedImage (fmap f img) x y
-
-instance Comonad FocusedImage where
-    extract (FocusedImage img x y) = pixel img undefined x y
-    extend f (FocusedImage img@(Image w h _) x y) = FocusedImage
-        (Image w h $ generate (w * h) $ \index ->
-            let (y', x') = index `divMod` w in
-            f (FocusedImage img x' y'))
-        x y
-
-instance PixelAdressable FocusedImage where
-    {-# INLINEABLE pixel #-}
-    pixel (FocusedImage img fx fy) d x y = pixel img d (fx + x) (fy + y)
-    {-# INLINEABLE inside #-}
-    inside (FocusedImage img fx fy) x y = inside img (fx + x) (fy + y)
-
---- MAIN ALGORITHM
+import ImgComonad (FocusedImage, dmap, focus, iWidth, iHeight, pixel, readImage, unfocus, writeGifAnim, writePng)
 
 gaussianBlur r = vertical . horizontal
     where add !a !b = a + b
@@ -108,23 +22,37 @@ clamp a b c
     | c > b = b
     | otherwise = c
 
+autolight img = dmap (*) img $ gaussianBlur 1 shadow
+    where (w, h) = (fromIntegral $ iWidth $ unfocus img, fromIntegral $ iHeight $ unfocus img)
+          blurr = minimum [w, h] / 16
+          distr = blurr / 2
+          distw = 0.01
+          (lx, ly) = (1, 1)
+
+          blurry = gaussianBlur blurr img
+          delta = fmap (\(dx, dy) -> lx*dx + ly*dy) $ gradient blurry
+
+          dist = distance distr $ fmap (< 0.5) img
+          mdist = fmap (\v -> distw * ((1 / (1 + exp (-v * 6 / distr))) - 1)) dist
+          shadow = fmap ((+ 0.8) . (* 0.2) . signum) $ dmap (+) delta mdist
+
+gameOfLife :: FocusedImage Bool -> FocusedImage Bool
+gameOfLife = extend $ \img ->
+    let n = sum [ if pixel img False x y then 1 else 0 | x <- [-1 .. 1], y <- [-1 .. 1], (x, y) /= (0, 0) ] in
+        n == 3 || (extract img && n == 2)
+
 main = do
-    [a, b] <- getArgs
-    img <- readImage a
-    let (w, h) = (fromIntegral $ iWidth img, fromIntegral $ iHeight img)
-        blurr = minimum [w, h] / 16
-        distr = blurr / 2
-        distw = 0.01
-        (lx, ly) = (1, 1)
-        image = fmap ((/ 256) . fromIntegral) $ focus img :: FocusedImage Float
-
-        blurry = gaussianBlur blurr image
-        delta = fmap (\(dx, dy) -> lx*dx + ly*dy) $ gradient blurry
-
-        dist = distance distr $ fmap (< 0.5) image
-        mdist = fmap (\v -> distw * ((1 / (1 + exp (-v * 6 / distr))) - 1)) dist
-        shadow = fmap ((+ 0.8) . (* 0.2) . signum) $ dmap (+) delta mdist
-
-        result = dmap (*) image $ gaussianBlur 1 shadow in
-        (writePng b $ unfocus $ fmap (toEnum . round . (* 255) . clamp 0 1) result)
+        args <- getArgs
+        if head args == "-c" then
+            let [a, b] = tail args in do
+            img <- readImage a
+            writeGifAnim b $ map fromB $ take 256 $ iterate gameOfLife $ toB img
+        else
+            let [a, b] = args in do
+            img <- readImage a
+            writePng b $ fromF $ autolight $ toF img
+    where toF img = fmap ((/ 256) . fromIntegral) $ focus img :: FocusedImage Float
+          fromF = unfocus . fmap (toEnum . round . (* 255) . clamp 0 1)
+          toB = fmap (> 0.5) . toF
+          fromB = fromF . fmap (\v -> if v then 1 else 0)
 

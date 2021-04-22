@@ -5,7 +5,11 @@ line art in Haskell.
 
 To run:
 
-    cabal run autolight <image> <output>
+    cabal run autolight <image> <output>.png
+
+Also Conway's game of life:
+
+    cabal run autolight -- -c <image> <animation>.gif
 
 ## How it works
 
