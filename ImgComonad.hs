@@ -6,7 +6,7 @@ import qualified Codec.Picture.Types as Juicy
 import Control.Comonad (Comonad, extend, extract)
 import Data.Either (fromRight)
 import Data.Maybe (fromJust)
-import Data.Vector (Vector, (!), generate)
+import Data.Vector (Vector, (!), generate, zipWith)
 import Data.Vector.Generic (convert)
 import Data.Word (Word8)
 
@@ -29,6 +29,15 @@ ipixel img@(Image w h d) v !x !y
 iinside :: Image a -> Int -> Int -> Bool
 {-# INLINABLE iinside #-}
 iinside (Image w h _) !x !y = x >= 0 && y >= 0 && x < w && y < h
+
+newImage :: Int -> Int -> (Int -> Int -> a) -> Image a
+{-# INLINABLE newImage #-}
+newImage w h f = Image w h $ generate (w * h) $ \index ->
+    let (y, x) = index `divMod` w in f x y
+
+iZipWith :: (a -> b -> c) -> Image a -> Image b -> Image c
+{-# INLINABLE iZipWith #-}
+iZipWith f a b = Image (iWidth a) (iHeight a) $ Data.Vector.zipWith f (iData a) (iData b)
 
 readImage :: FilePath -> IO (Image Word8)
 readImage filePath = do
@@ -63,23 +72,19 @@ focus img
     | iWidth img > 0 && iHeight img > 0 = FocusedImage img 0 0
     | otherwise = error "Cannot focus empty images"
 
-dmap :: (a -> b -> c) -> FocusedImage a -> FocusedImage b -> FocusedImage c
-dmap f (FocusedImage a _ _) (FocusedImage b@(Image w h _) x y) =
-    FocusedImage
-        (Image w h $ generate (w * h) $ \index ->
-            let (y', x') = index `divMod` w in
-            f (ipixel a undefined x' y') (ipixel b undefined x' y'))
-        x y
+zipWith :: (a -> b -> c) -> FocusedImage a -> FocusedImage b -> FocusedImage c
+{-# INLINABLE zipWith #-}
+zipWith f (FocusedImage a _ _) (FocusedImage b x y) =
+    FocusedImage (iZipWith f a b) x y
 
 instance Functor FocusedImage where
     fmap f (FocusedImage img x y) = FocusedImage (fmap f img) x y
 
 instance Comonad FocusedImage where
     extract (FocusedImage img x y) = ipixel img undefined x y
+    {-# INLINABLE extend #-}
     extend f (FocusedImage img@(Image w h _) x y) = FocusedImage
-        (Image w h $ generate (w * h) $ \index ->
-            let (y', x') = index `divMod` w in
-            f (FocusedImage img x' y'))
+        (newImage w h $ \x y -> f $ FocusedImage img x y)
         x y
 
 pixel :: FocusedImage a -> a -> Int -> Int -> a
