@@ -70,7 +70,7 @@ gameOfLife = extend $ \img ->
         n == 3 || (extract img && n == 2)
 
 gameOfLife' img = newImage (iWidth img) (iHeight img) $ \x y ->
-    let n = sum [ if ipixel img False x' y' then 1 else 0 | x' <- [x-1 .. x+1], y' <- [y-1 .. y+1], (x, y) /= (0, 0) ] in
+    let n = sum [ if ipixel img False (x + dx) (y + dy) then 1 else 0 | dx <- [-1 .. 1], dy <- [-1 .. 1], (dx, dy) /= (0, 0) ] in
         n == 3 || (ipixel img False x y && n == 2)
 
 takeiterate 0 _ _ = []
