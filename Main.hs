@@ -16,29 +16,29 @@ gaussianBlur r = vertical . horizontal
 
 gaussianBlur' r = vertical . horizontal
     where add !a !b = a + b
-          horizontal img = newImage (iWidth img) (iHeight img) $ \x y ->
+          horizontal img = newImage (iSize img) $ \(x, y) ->
               foldl' add 0 [ gauss (fromIntegral (x' - x)) * ipixel img 0 x' y | x' <- [x - 3*(round r) .. x + 3*(round r)] ]
-          vertical img = newImage (iWidth img) (iHeight img) $ \x y ->
+          vertical img = newImage (iSize img) $ \(x, y) ->
               foldl' add 0 [ gauss (fromIntegral (y' - y)) * ipixel img 0 x y' | y' <- [y - 3*(round r) .. y + 3*(round r)] ]
           gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
 
 gradient = extend $ \img ->
     let v = extract img in (pixel img v 1 0 - v, pixel img v 0 1 - v)
 
-gradient' img = newImage (iWidth img) (iHeight img) $ \x y ->
+gradient' img = newImage (iSize img) $ \(x, y) ->
     let v = ipixel img undefined x y in (ipixel img v (x + 1) y - v, ipixel img v x (y + 1) - v)
 
 distance r = extend $ \img ->
     minimum (r : [ sqrt (x*x + y*y) | x <- [-r .. r], y <- [-r .. r],
         pixel img False (round x) (round y) ])
 
-distance' r img = newImage (iWidth img) (iHeight img) $ \x y ->
+distance' r img = newImage (iSize img) $ \(x, y) ->
     minimum (r : [ sqrt (x'*x' + y'*y') | x' <- [(fromIntegral x) - r .. (fromIntegral x) + r], y' <- [(fromIntegral y) - r .. (fromIntegral y) + r],
         ipixel img False (round x') (round y') ])
 
 autolight img = ImgComonad.zipWith (*) img $ gaussianBlur 1 shadow
-    where (w, h) = (fromIntegral $ iWidth $ unfocus img, fromIntegral $ iHeight $ unfocus img)
-          blurr = minimum [w, h] / 16
+    where (w, h) = iSize $ unfocus img
+          blurr = minimum [fromIntegral w, fromIntegral h] / 16
           distr = blurr / 2
           distw = 0.01
           (lx, ly) = (1, 1)
@@ -51,8 +51,8 @@ autolight img = ImgComonad.zipWith (*) img $ gaussianBlur 1 shadow
           shadow = fmap ((+ 0.8) . (* 0.2) . signum) $ ImgComonad.zipWith (+) delta mdist
 
 autolight' img = iZipWith (*) img $ gaussianBlur' 1 shadow
-    where (w, h) = (fromIntegral $ iWidth img, fromIntegral $ iHeight img)
-          blurr = minimum [w, h] / 16
+    where (w, h) = iSize img
+          blurr = minimum [fromIntegral w, fromIntegral h] / 16
           distr = blurr / 2
           distw = 0.01
           (lx, ly) = (1, 1)
@@ -64,12 +64,11 @@ autolight' img = iZipWith (*) img $ gaussianBlur' 1 shadow
           mdist = fmap (\v -> distw * ((1 / (1 + exp (-v * 6 / distr))) - 1)) dist
           shadow = fmap ((+ 0.8) . (* 0.2) . signum) $ iZipWith (+) delta mdist
 
-gameOfLife :: FocusedImage Bool -> FocusedImage Bool
 gameOfLife = extend $ \img ->
     let n = sum [ if pixel img False x y then 1 else 0 | x <- [-1 .. 1], y <- [-1 .. 1], (x, y) /= (0, 0) ] in
         n == 3 || (extract img && n == 2)
 
-gameOfLife' img = newImage (iWidth img) (iHeight img) $ \x y ->
+gameOfLife' img = newImage (iSize img) $ \(x, y) ->
     let n = sum [ if ipixel img False (x + dx) (y + dy) then 1 else 0 | dx <- [-1 .. 1], dy <- [-1 .. 1], (dx, dy) /= (0, 0) ] in
         n == 3 || (ipixel img False x y && n == 2)
 
@@ -78,9 +77,7 @@ takeiterate !n f a = a : takeiterate (n - 1) f (f a)
 
 toB = fmap (> 0.5) . toF
 fromB = fromF . fmap (\v -> if v then 1 else 0)
-toF :: Image Word8 -> Image Float
 toF = fmap ((/ 256) . fromIntegral)
-fromF :: Image Float -> Image Word8
 fromF = fmap (toEnum . round . (* 255) . clamp 0 1)
 clamp a b c
     | c < a = a
