@@ -8,20 +8,25 @@ import ImgComonad
 
 import Criterion.Main
 
+gaussianBlur :: Image i => Float -> FocusedImage i Float -> FocusedImage i Float
 gaussianBlur r = vertical . horizontal
     where add !a !b = a + b
           horizontal = extend $ \img -> foldl' add 0 [ gauss (fromIntegral x) * pixel img 0 x 0 | x <- [-3*(round r) .. 3*(round r)] ]
           vertical = extend $ \img -> foldl' add 0 [ gauss (fromIntegral y) * pixel img 0 0 y | y <- [-3*(round r) .. 3*(round r)] ]
           gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
 
+gaussianBlur' :: Image i => Float -> i Float -> i Float
 gaussianBlur' r = vertical . horizontal
     where add !a !b = a + b
+          horizontal :: Image i => i Float -> i Float
           horizontal img = newImage (iSize img) $ \(x, y) ->
               foldl' add 0 [ gauss (fromIntegral (x' - x)) * ipixel img 0 x' y | x' <- [x - 3*(round r) .. x + 3*(round r)] ]
+          vertical :: Image i => i Float -> i Float
           vertical img = newImage (iSize img) $ \(x, y) ->
               foldl' add 0 [ gauss (fromIntegral (y' - y)) * ipixel img 0 x y' | y' <- [y - 3*(round r) .. y + 3*(round r)] ]
           gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
 
+{-
 gradient = extend $ \img ->
     let v = extract img in (pixel img v 1 0 - v, pixel img v 0 1 - v)
 
@@ -63,11 +68,14 @@ autolight' img = iZipWith (*) img $ gaussianBlur' 1 shadow
           dist = distance' distr $ fmap (< 0.5) img
           mdist = fmap (\v -> distw * ((1 / (1 + exp (-v * 6 / distr))) - 1)) dist
           shadow = fmap ((+ 0.8) . (* 0.2) . signum) $ iZipWith (+) delta mdist
+-}
 
+gameOfLife :: Image i => FocusedImage i Bool -> FocusedImage i Bool
 gameOfLife = extend $ \img ->
     let n = sum [ if pixel img False x y then 1 else 0 | x <- [-1 .. 1], y <- [-1 .. 1], (x, y) /= (0, 0) ] in
         n == 3 || (extract img && n == 2)
 
+gameOfLife' :: Image i => i Bool -> i Bool
 gameOfLife' img = newImage (iSize img) $ \(x, y) ->
     let n = sum [ if ipixel img False (x + dx) (y + dy) then 1 else 0 | dx <- [-1 .. 1], dy <- [-1 .. 1], (dx, dy) /= (0, 0) ] in
         n == 3 || (ipixel img False x y && n == 2)
@@ -75,9 +83,13 @@ gameOfLife' img = newImage (iSize img) $ \(x, y) ->
 takeiterate 0 _ _ = []
 takeiterate !n f a = a : takeiterate (n - 1) f (f a)
 
+toB :: Image i => i Word8 -> i Bool
 toB = fmap (> 0.5) . toF
+fromB :: Image i => i Bool -> i Word8
 fromB = fromF . fmap (\v -> if v then 1 else 0)
+toF :: Image i => i Word8 -> i Float
 toF = fmap ((/ 256) . fromIntegral)
+fromF :: Image i => i Float -> i Word8
 fromF = fmap (toEnum . round . (* 255) . clamp 0 1)
 clamp a b c
     | c < a = a
