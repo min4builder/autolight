@@ -14,6 +14,7 @@ gaussianBlur r = vertical . horizontal
           horizontal = extend $ \img -> foldl' add 0 [ gauss (fromIntegral x) * pixel img 0 x 0 | x <- [-3*(round r) .. 3*(round r)] ]
           vertical = extend $ \img -> foldl' add 0 [ gauss (fromIntegral y) * pixel img 0 0 y | y <- [-3*(round r) .. 3*(round r)] ]
           gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
+{-# SPECIALIZE gaussianBlur :: Float -> FocusedImage ImageArray Float -> FocusedImage ImageArray Float #-}
 
 gaussianBlur' :: Image i => Float -> i Float -> i Float
 gaussianBlur' r = vertical . horizontal
@@ -25,6 +26,7 @@ gaussianBlur' r = vertical . horizontal
           vertical img = newImage (iSize img) $ \(x, y) ->
               foldl' add 0 [ gauss (fromIntegral (y' - y)) * ipixel img 0 x y' | y' <- [y - 3*(round r) .. y + 3*(round r)] ]
           gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
+{-# SPECIALIZE gaussianBlur' :: Float -> ImageArray Float -> ImageArray Float #-}
 
 {-
 gradient = extend $ \img ->
@@ -74,11 +76,13 @@ gameOfLife :: Image i => FocusedImage i Bool -> FocusedImage i Bool
 gameOfLife = extend $ \img ->
     let n = sum [ if pixel img False x y then 1 else 0 | x <- [-1 .. 1], y <- [-1 .. 1], (x, y) /= (0, 0) ] in
         n == 3 || (extract img && n == 2)
+{-# SPECIALIZE gameOfLife :: FocusedImage ImageArray Bool -> FocusedImage ImageArray Bool #-}
 
 gameOfLife' :: Image i => i Bool -> i Bool
 gameOfLife' img = newImage (iSize img) $ \(x, y) ->
     let n = sum [ if ipixel img False (x + dx) (y + dy) then 1 else 0 | dx <- [-1 .. 1], dy <- [-1 .. 1], (dx, dy) /= (0, 0) ] in
         n == 3 || (ipixel img False x y && n == 2)
+{-# SPECIALIZE gameOfLife' :: ImageArray Bool -> ImageArray Bool #-}
 
 takeiterate 0 _ _ = []
 takeiterate !n f a = a : takeiterate (n - 1) f (f a)
@@ -102,18 +106,18 @@ main = do
     life0 <- readImage "life0.png"
     defaultMain [
         bgroup "gaussianBlur" [
-            bench "testsmall" $ nf (iData . unfocus . gaussianBlur 16) $ focus $ toF testsmall,
-            bench "testbig" $ nf (iData . unfocus . gaussianBlur 16) $ focus $ toF testbig
+            bench "testsmall" $ nf (iaData . unfocus . gaussianBlur 16) $ focus $ toF testsmall,
+            bench "testbig" $ nf (iaData . unfocus . gaussianBlur 16) $ focus $ toF testbig
             ],
         bgroup "gaussianBlur'" [
-            bench "testsmall" $ nf (iData . gaussianBlur' 16) $ toF testsmall,
-            bench "testbig" $ nf (iData . gaussianBlur' 16) $ toF testbig
+            bench "testsmall" $ nf (iaData . gaussianBlur' 16) $ toF testsmall,
+            bench "testbig" $ nf (iaData . gaussianBlur' 16) $ toF testbig
             ],
         bgroup "gameOfLife" [
-            bench "life0" $ nf (map (iData . unfocus) . takeiterate 16 gameOfLife) $ focus $ toB life0
+            bench "life0" $ nf (map (iaData . unfocus) . takeiterate 16 gameOfLife) $ focus $ toB life0
             ],
         bgroup "gameOfLife'" [
-            bench "life0" $ nf (map iData . takeiterate 16 gameOfLife') $ toB life0
+            bench "life0" $ nf (map iaData . takeiterate 16 gameOfLife') $ toB life0
             ]
         ]
 

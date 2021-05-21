@@ -20,43 +20,48 @@ class Functor i => Image i where
 --- IMAGE HANDLING
 
 data ImageArray a = ImageArray {
-    iWidth :: !Int,
-    iHeight :: !Int,
-    iData :: Vector a }
+    iaSize :: !(Int, Int),
+    iaData :: Vector a }
 
 instance Functor ImageArray where
-    fmap f (ImageArray w h d) = ImageArray w h (fmap f d)
+    {-# INLINABLE fmap #-}
+    fmap f (ImageArray s d) = ImageArray s (fmap f d)
 
 instance Image ImageArray where
-    ipixel img@(ImageArray w h d) v !x !y
+    {-# INLINABLE ipixel #-}
+    ipixel img@(ImageArray (w, h) d) v !x !y
         | iinside img x y = d ! (y * w + x)
         | otherwise = v
-    iinside (ImageArray w h _) !x !y = x >= 0 && y >= 0 && x < w && y < h
-    newImage (w, h) f = ImageArray w h $ generate (w * h) $ \index ->
+    {-# INLINABLE iinside #-}
+    iinside (ImageArray (w, h) _) !x !y = x >= 0 && y >= 0 && x < w && y < h
+    {-# INLINABLE newImage #-}
+    newImage (w, h) f = ImageArray (w, h) $ generate (w * h) $ \index ->
         let (y, x) = index `divMod` w in f (x, y)
-    iZipWith f a b = ImageArray (iWidth a) (iHeight a) $ Data.Vector.zipWith f (iData a) (iData b)
-    iSize (ImageArray w h _) = (w, h)
+    {-# INLINABLE iZipWith #-}
+    iZipWith f a b = ImageArray (iaSize a) $ Data.Vector.zipWith f (iaData a) (iaData b)
+    {-# INLINABLE iSize #-}
+    iSize = iaSize
 
 readImage :: FilePath -> IO (ImageArray Word8)
 readImage filePath = do
     imageR <- Juicy.readImage filePath
     case imageR of
         Right img ->
-            return $ ImageArray (Juicy.dynamicMap Juicy.imageWidth img)
-                                (Juicy.dynamicMap Juicy.imageHeight img)
+            return $ ImageArray ((Juicy.dynamicMap Juicy.imageWidth img),
+                                 (Juicy.dynamicMap Juicy.imageHeight img))
                                 $ convert $ Juicy.imageData $ Juicy.extractLumaPlane
                                     $ Juicy.convertRGB8 img
         Left err -> error $ "readImage: could not load image: " ++ err
 
 writePng :: FilePath -> ImageArray Word8 -> IO ()
-writePng filePath img =
+writePng filePath (ImageArray (w, h) d) =
     Juicy.writePng filePath
-        (Juicy.Image (iWidth img) (iHeight img) (convert $ iData img) :: Juicy.Image Juicy.Pixel8)
+        (Juicy.Image w h (convert d) :: Juicy.Image Juicy.Pixel8)
 
 writeGifAnim :: FilePath -> [ImageArray Word8] -> IO ()
 writeGifAnim filePath imgs = fromRight undefined $
-    Juicy.writeGifAnimation filePath 10 Juicy.LoopingNever $ map (\img ->
-        Juicy.convertRGB8 $ Juicy.ImageY8 (Juicy.Image (iWidth img) (iHeight img) (convert $ iData img) :: Juicy.Image Juicy.Pixel8)) imgs
+    Juicy.writeGifAnimation filePath 10 Juicy.LoopingNever $ map (\(ImageArray (w, h) d) ->
+        Juicy.convertRGB8 $ Juicy.ImageY8 (Juicy.Image w h (convert d) :: Juicy.Image Juicy.Pixel8)) imgs
 
 --- IMAGE COMONAD
 
@@ -73,6 +78,7 @@ zipWith :: Image i => (a -> b -> c) -> FocusedImage i a -> FocusedImage i b -> F
 {-# INLINABLE zipWith #-}
 zipWith f (FocusedImage a _) (FocusedImage b c) =
     FocusedImage (iZipWith f a b) c
+{-# SPECIALIZE ImgComonad.zipWith :: (a -> b -> c) -> FocusedImage ImageArray a -> FocusedImage ImageArray b -> FocusedImage ImageArray c #-}
 
 instance Image i => Functor (FocusedImage i) where
     fmap f (FocusedImage img c) = FocusedImage (fmap f img) c
@@ -83,12 +89,15 @@ instance Image i => Comonad (FocusedImage i) where
     extend f (FocusedImage img c) = FocusedImage
         (newImage (iSize img) $ \c -> f $ FocusedImage img c)
         c
+    {-# SPECIALIZE extend :: (FocusedImage ImageArray a -> b) -> FocusedImage ImageArray a -> FocusedImage ImageArray b #-}
 
 pixel :: Image i => FocusedImage i a -> a -> Int -> Int -> a
 {-# INLINABLE pixel #-}
 pixel (FocusedImage img (fx, fy)) d x y = ipixel img d (fx + x) (fy + y)
+{-# SPECIALIZE pixel :: FocusedImage ImageArray a -> a -> Int -> Int -> a #-}
 
 inside :: Image i => FocusedImage i a -> Int -> Int -> Bool
 {-# INLINABLE inside #-}
 inside (FocusedImage img (fx, fy)) x y = iinside img (fx + x) (fy + y)
+{-# SPECIALIZE inside :: FocusedImage ImageArray a -> Int -> Int -> Bool #-}
 
