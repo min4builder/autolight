@@ -25,22 +25,16 @@ class (Functor m, Shape (MatrixShape m)) => Matrix m where
 newtype Shape sh => MatrixArray sh a = MatrixArray { smData :: Array V sh a }
 
 instance Shape sh => Functor (MatrixArray sh) where
-    {-# INLINABLE fmap #-}
     fmap f (MatrixArray d) = MatrixArray $ computeS $ Data.Array.Repa.map f d
 
 instance Shape sh => Matrix (MatrixArray sh) where
     type MatrixShape (MatrixArray sh) = sh
-    {-# INLINABLE mindex #-}
     mindex mat@(MatrixArray d) v !p
         | minside mat p = d ! p
         | otherwise = v
-    {-# INLINABLE minside #-}
     minside (MatrixArray d) !p = inShape (extent d) p
-    {-# INLINABLE newMatrix #-}
     newMatrix sh f = MatrixArray $ computeS $ fromFunction sh f
-    {-# INLINABLE mzipWith #-}
     mzipWith f (MatrixArray a) (MatrixArray b) = MatrixArray $ computeS $ Data.Array.Repa.zipWith f a b
-    {-# INLINABLE msize #-}
     msize (MatrixArray d) = extent d
 
 --- PARALLEL PROCESSING MATRIX
@@ -48,30 +42,22 @@ instance Shape sh => Matrix (MatrixArray sh) where
 newtype Shape sh => MatrixParallel sh a = MatrixParallel { pmData :: Array V sh a }
 
 toParallel :: Shape sh => MatrixArray sh a -> MatrixParallel sh a
-{-# INLINE toParallel #-}
 toParallel = MatrixParallel . smData
 
 fromParallel :: Shape sh => MatrixParallel sh a -> MatrixArray sh a
-{-# INLINE fromParallel #-}
 fromParallel = MatrixArray . pmData
 
 instance Shape sh => Functor (MatrixParallel sh) where
-    {-# INLINABLE fmap #-}
     fmap f (MatrixParallel d) = MatrixParallel $ runIdentity $ computeP $ Data.Array.Repa.map f d
 
 instance Shape sh => Matrix (MatrixParallel sh) where
     type MatrixShape (MatrixParallel sh) = sh
-    {-# INLINABLE mindex #-}
     mindex mat@(MatrixParallel d) v !p
         | minside mat p = d ! p
         | otherwise = v
-    {-# INLINABLE minside #-}
     minside (MatrixParallel d) !p = inShape (extent d) p
-    {-# INLINABLE newMatrix #-}
     newMatrix sh f = MatrixParallel $ runIdentity $ computeP $ fromFunction sh f
-    {-# INLINABLE mzipWith #-}
     mzipWith f (MatrixParallel a) (MatrixParallel b) = MatrixParallel $ runIdentity $ computeP $ Data.Array.Repa.zipWith f a b
-    {-# INLINABLE msize #-}
     msize (MatrixParallel d) = extent d
 
 --- IMAGE HANDLING
@@ -112,7 +98,6 @@ focus mat
     | otherwise = error "Cannot focus empty images"
 
 zipWith :: Matrix m => (a -> b -> c) -> FocusedMatrix m a -> FocusedMatrix m b -> FocusedMatrix m c
-{-# INLINABLE zipWith #-}
 zipWith f (FocusedMatrix a _) (FocusedMatrix b c) =
     FocusedMatrix (mzipWith f a b) c
 
@@ -121,19 +106,16 @@ instance Matrix m => Functor (FocusedMatrix m) where
 
 instance Matrix m => Comonad (FocusedMatrix m) where
     extract (FocusedMatrix mat p) = mindex mat undefined p
-    {-# INLINABLE extend #-}
     extend f (FocusedMatrix mat p) = FocusedMatrix
         (newMatrix (msize mat) $ \p -> f $ FocusedMatrix mat p)
         p
 
 index :: Matrix m => FocusedMatrix m a -> a -> MatrixShape m -> a
-{-# INLINABLE index #-}
 index (FocusedMatrix mat fp) d p = mindex mat d $ addDim fp p
 {-# SPECIALIZE MatrixComonad.index :: Shape sh => FocusedMatrix (MatrixArray sh) a -> a -> sh -> a #-}
 {-# SPECIALIZE MatrixComonad.index :: Shape sh => FocusedMatrix (MatrixParallel sh) a -> a -> sh -> a #-}
 
 inside :: Matrix m => FocusedMatrix m a -> MatrixShape m -> Bool
-{-# INLINABLE inside #-}
 inside (FocusedMatrix mat fp) p = minside mat $ addDim fp p
 {-# SPECIALIZE inside :: Shape sh => FocusedMatrix (MatrixArray sh) a -> sh -> Bool #-}
 {-# SPECIALIZE inside :: Shape sh => FocusedMatrix (MatrixParallel sh) a -> sh -> Bool #-}

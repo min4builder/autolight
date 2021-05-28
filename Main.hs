@@ -12,11 +12,7 @@ import MatrixComonad
 import Criterion.Main
 
 process :: Matrix i => i a -> (MatrixShape i -> b) -> i b
-{-# INLINE process #-}
 process img f = newMatrix (msize img) f
-{-# SPECIALIZE process :: MatrixArray DIM2 Float -> (DIM2 -> Float) -> MatrixArray DIM2 Float #-}
-{-# SPECIALIZE process :: MatrixArray DIM2 Float -> (DIM2 -> (Float, Float)) -> MatrixArray DIM2 (Float, Float) #-}
-{-# SPECIALIZE process :: MatrixArray DIM2 Bool -> (DIM2 -> Float) -> MatrixArray DIM2 Float #-}
 
 gaussianBlur r = vertical . horizontal
     where add !a !b = a + b
