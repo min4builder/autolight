@@ -19,6 +19,7 @@ gaussianBlur r = vertical . horizontal
           horizontal = extend $ \img -> foldl' add 0 [ gauss (fromIntegral x) * index img 0 (ix2 x 0) | x <- [-3*(round r) .. 3*(round r)] ]
           vertical = extend $ \img -> foldl' add 0 [ gauss (fromIntegral y) * index img 0 (ix2 0 y) | y <- [-3*(round r) .. 3*(round r)] ]
           gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
+{-# SPECIALIZE gaussianBlur :: Float -> FocusedMatrix (MatrixVector DIM2) Float -> FocusedMatrix (MatrixVector DIM2) Float #-}
 {-# SPECIALIZE gaussianBlur :: Float -> FocusedMatrix (MatrixArray DIM2) Float -> FocusedMatrix (MatrixArray DIM2) Float #-}
 {-# SPECIALIZE gaussianBlur :: Float -> FocusedMatrix (MatrixParallel DIM2) Float -> FocusedMatrix (MatrixParallel DIM2) Float #-}
 
@@ -29,29 +30,34 @@ gaussianBlur' r = vertical . horizontal
           vertical img = process img $ \(Z :. x :. y) ->
               foldl' add 0 [ gauss (fromIntegral (y' - y)) * mindex img 0 (ix2 x y') | y' <- [y - 3*(round r) .. y + 3*(round r)] ]
           gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
+{-# SPECIALIZE gaussianBlur' :: Float -> MatrixVector DIM2 Float -> MatrixVector DIM2 Float #-}
 {-# SPECIALIZE gaussianBlur' :: Float -> MatrixArray DIM2 Float -> MatrixArray DIM2 Float #-}
 {-# SPECIALIZE gaussianBlur' :: Float -> MatrixParallel DIM2 Float -> MatrixParallel DIM2 Float #-}
 
 gradient :: (Matrix m, MatrixShape m ~ DIM2, Num p) => FocusedMatrix m p -> FocusedMatrix m (p, p)
 gradient = extend $ \img ->
     let v = extract img in (index img v (ix2 1 0) - v, index img v (ix2 0 1) - v)
+{-# SPECIALIZE gradient :: FocusedMatrix (MatrixVector DIM2) Float -> FocusedMatrix (MatrixVector DIM2) (Float, Float) #-}
 {-# SPECIALIZE gradient :: FocusedMatrix (MatrixArray DIM2) Float -> FocusedMatrix (MatrixArray DIM2) (Float, Float) #-}
 {-# SPECIALIZE gradient :: FocusedMatrix (MatrixParallel DIM2) Float -> FocusedMatrix (MatrixParallel DIM2) (Float, Float) #-}
 
 gradient' img = process img $ \(Z :. x :. y) ->
     let v = mindex img undefined (ix2 x y) in (mindex img v (ix2 (x + 1) y) - v, mindex img v (ix2 x (y + 1)) - v)
+{-# SPECIALIZE gradient' :: MatrixVector DIM2 Float -> MatrixVector DIM2 (Float, Float) #-}
 {-# SPECIALIZE gradient' :: MatrixArray DIM2 Float -> MatrixArray DIM2 (Float, Float) #-}
 {-# SPECIALIZE gradient' :: MatrixParallel DIM2 Float -> MatrixParallel DIM2 (Float, Float) #-}
 
 distance r = extend $ \img ->
     minimum (r : [ sqrt (x*x + y*y) | x <- [-r .. r], y <- [-r .. r],
         index img False (ix2 (round x) (round y)) ])
+{-# SPECIALIZE distance :: Float -> FocusedMatrix (MatrixVector DIM2) Bool -> FocusedMatrix (MatrixVector DIM2) Float #-}
 {-# SPECIALIZE distance :: Float -> FocusedMatrix (MatrixArray DIM2) Bool -> FocusedMatrix (MatrixArray DIM2) Float #-}
 {-# SPECIALIZE distance :: Float -> FocusedMatrix (MatrixParallel DIM2) Bool -> FocusedMatrix (MatrixParallel DIM2) Float #-}
 
 distance' r img = process img $ \(Z :. x :. y) ->
     minimum (r : [ sqrt (x'*x' + y'*y') | x' <- [(fromIntegral x) - r .. (fromIntegral x) + r], y' <- [(fromIntegral y) - r .. (fromIntegral y) + r],
         mindex img False (ix2 (round x') (round y')) ])
+{-# SPECIALIZE distance' :: Float -> MatrixVector DIM2 Bool -> MatrixVector DIM2 Float #-}
 {-# SPECIALIZE distance' :: Float -> MatrixArray DIM2 Bool -> MatrixArray DIM2 Float #-}
 {-# SPECIALIZE distance' :: Float -> MatrixParallel DIM2 Bool -> MatrixParallel DIM2 Float #-}
 
@@ -68,6 +74,7 @@ autolight img = MatrixComonad.zipWith (*) img $ gaussianBlur 1 shadow
           dist = distance distr $ fmap (< 0.5) img
           mdist = fmap (\v -> distw * ((1 / (1 + exp (-v * 6 / distr))) - 1)) dist
           shadow = fmap ((+ 0.8) . (* 0.2) . signum) $ MatrixComonad.zipWith (+) delta mdist
+{-# SPECIALIZE autolight :: FocusedMatrix (MatrixVector DIM2) Float -> FocusedMatrix (MatrixVector DIM2) Float #-}
 {-# SPECIALIZE autolight :: FocusedMatrix (MatrixArray DIM2) Float -> FocusedMatrix (MatrixArray DIM2) Float #-}
 {-# SPECIALIZE autolight :: FocusedMatrix (MatrixParallel DIM2) Float -> FocusedMatrix (MatrixParallel DIM2) Float #-}
 
@@ -84,6 +91,7 @@ autolight' img = mzipWith (*) img $ gaussianBlur' 1 shadow
           dist = distance' distr $ fmap (< 0.5) img
           mdist = fmap (\v -> distw * ((1 / (1 + exp (-v * 6 / distr))) - 1)) dist
           shadow = fmap ((+ 0.8) . (* 0.2) . signum) $ mzipWith (+) delta mdist
+{-# SPECIALIZE autolight' :: MatrixVector DIM2 Float -> MatrixVector DIM2 Float #-}
 {-# SPECIALIZE autolight' :: MatrixArray DIM2 Float -> MatrixArray DIM2 Float #-}
 {-# SPECIALIZE autolight' :: MatrixParallel DIM2 Float -> MatrixParallel DIM2 Float #-}
 
@@ -91,6 +99,7 @@ gameOfLife :: (Matrix i, MatrixShape i ~ DIM2) => FocusedMatrix i Bool -> Focuse
 gameOfLife = extend $ \img ->
     let n = sum [ if index img False (ix2 x y) then 1 else 0 | x <- [-1 .. 1], y <- [-1 .. 1], (x, y) /= (0, 0) ] in
         n == 3 || (extract img && n == 2)
+{-# SPECIALIZE gameOfLife :: FocusedMatrix (MatrixVector DIM2) Bool -> FocusedMatrix (MatrixVector DIM2) Bool #-}
 {-# SPECIALIZE gameOfLife :: FocusedMatrix (MatrixArray DIM2) Bool -> FocusedMatrix (MatrixArray DIM2) Bool #-}
 {-# SPECIALIZE gameOfLife :: FocusedMatrix (MatrixParallel DIM2) Bool -> FocusedMatrix (MatrixParallel DIM2) Bool #-}
 
@@ -98,6 +107,7 @@ gameOfLife' :: (Matrix i, MatrixShape i ~ DIM2) => i Bool -> i Bool
 gameOfLife' img = process img $ \(Z :. x :. y) ->
     let n = sum [ if mindex img False (ix2 (x + dx) (y + dy)) then 1 else 0 | dx <- [-1 .. 1], dy <- [-1 .. 1], (dx, dy) /= (0, 0) ] in
         n == 3 || (mindex img False (ix2 x y) && n == 2)
+{-# SPECIALIZE gameOfLife' :: MatrixVector DIM2 Bool -> MatrixVector DIM2 Bool #-}
 {-# SPECIALIZE gameOfLife' :: MatrixArray DIM2 Bool -> MatrixArray DIM2 Bool #-}
 {-# SPECIALIZE gameOfLife' :: MatrixParallel DIM2 Bool -> MatrixParallel DIM2 Bool #-}
 
@@ -123,24 +133,30 @@ main = do
     life0 <- readImage "life0.png"
     defaultMain [
         bgroup "autolight" [
-            bench "testsmall (serial)" $ nf (toVector . smData . unfocus . autolight) $ focus $ toF testsmall,
-            bench "testsmall (parallel)" $ nf (toVector . pmData . unfocus . autolight) $ focus $ toParallel $ toF testsmall,
-            bench "testbig (serial)" $ nf (toVector . smData . unfocus . autolight) $ focus $ toF testbig,
-            bench "testbig (parallel)" $ nf (toVector . pmData . unfocus . autolight) $ focus $ toParallel $ toF testbig
+            bench "testsmall (vector)" $ whnf (unfocus . autolight) $ focus $ toF testsmall,
+            bench "testsmall (serial)" $ whnf (fromArray . unfocus . autolight) $ focus $ toArray $ toF testsmall,
+            bench "testsmall (parallel)" $ whnf (fromParallel . unfocus . autolight) $ focus $ toParallel $ toF testsmall,
+            bench "testbig (vector)" $ whnf (unfocus . autolight) $ focus $ toF testbig,
+            bench "testbig (serial)" $ whnf (fromArray . unfocus . autolight) $ focus $ toArray $ toF testbig,
+            bench "testbig (parallel)" $ whnf (fromParallel . unfocus . autolight) $ focus $ toParallel $ toF testbig
             ],
         bgroup "autolight'" [
-            bench "testsmall (serial)" $ nf (toVector . smData . autolight') $ toF testsmall,
-            bench "testsmall (parallel)" $ nf (toVector . pmData . autolight') $ toParallel $ toF testsmall,
-            bench "testbig (serial)" $ nf (toVector . smData . autolight') $ toF testbig,
-            bench "testbig (parallel)" $ nf (toVector . pmData . autolight') $ toParallel $ toF testbig
+            bench "testsmall (vector)" $ whnf autolight' $ toF testsmall,
+            bench "testsmall (serial)" $ whnf (fromArray . autolight') $ toArray $ toF testsmall,
+            bench "testsmall (parallel)" $ whnf (fromParallel . autolight') $ toParallel $ toF testsmall,
+            bench "testbig (vector)" $ whnf autolight' $ toF testbig,
+            bench "testbig (serial)" $ whnf (fromArray . autolight') $ toArray $ toF testbig,
+            bench "testbig (parallel)" $ whnf (fromParallel . autolight') $ toParallel $ toF testbig
             ],
         bgroup "gameOfLife" [
-            bench "life0 (serial)" $ nf (map (toVector . smData . unfocus) . takeiterate 16 gameOfLife) $ focus $ toB life0,
-            bench "life0 (parallel)" $ nf (map (toVector . pmData . unfocus) . takeiterate 16 gameOfLife) $ focus $ toParallel $ toB life0
+            bench "life0 (vector)" $ whnf (last . map unfocus . takeiterate 16 gameOfLife) $ focus $ toB life0,
+            bench "life0 (serial)" $ whnf (last . map (fromArray . unfocus) . takeiterate 16 gameOfLife) $ focus $ toArray $ toB life0,
+            bench "life0 (parallel)" $ whnf (last . map (fromParallel . unfocus) . takeiterate 16 gameOfLife) $ focus $ toParallel $ toB life0
             ],
         bgroup "gameOfLife'" [
-            bench "life0 (serial)" $ nf (map (toVector . smData) . takeiterate 16 gameOfLife') $ toB life0,
-            bench "life0 (parallel)" $ nf (map (toVector . pmData) . takeiterate 16 gameOfLife') $ toParallel $ toB life0
+            bench "life0 (vector)" $ whnf (last . takeiterate 16 gameOfLife') $ toB life0,
+            bench "life0 (serial)" $ whnf (last . map fromArray . takeiterate 16 gameOfLife') $ toArray $ toB life0,
+            bench "life0 (parallel)" $ whnf (last . map fromParallel . takeiterate 16 gameOfLife') $ toParallel $ toB life0
             ]
         ]
 
