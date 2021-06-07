@@ -4,7 +4,7 @@ name:                autolight
 version:             0.1.0.0
 -- synopsis:
 -- description:
-license-file:        LICENSE
+-- license-file:
 author:              Lucas Ieks
 maintainer:          lieks124@gmail.com
 build-type:          Simple
@@ -12,6 +12,6 @@ build-type:          Simple
 executable coautolight
   main-is:             Main.hs
   other-modules:       MatrixComonad
-  build-depends:       base >=4.14 && <4.15, comonad, JuicyPixels, mtl, repa, vector, criterion
+  build-depends:       base < 4.15, comonad, JuicyPixels, mtl, repa, vector, criterion
   default-language:    Haskell2010
   ghc-options:         -O2 -fllvm -threaded
