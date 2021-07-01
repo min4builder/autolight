@@ -5,13 +5,11 @@ import qualified Codec.Picture as Juicy
 import qualified Codec.Picture.Types as Juicy
 import Control.Comonad (Comonad, extend, extract)
 import Control.Monad.Identity (runIdentity)
-import Data.Array.Repa
-import qualified Data.Array.Repa as R
+import Data.Array.Repa as R
 import Data.Array.Repa.Repr.Vector
 import Data.Either (fromRight)
 import Data.Maybe (fromJust)
-import Data.Vector (Vector, (!), generate, zipWith)
-import qualified Data.Vector as V
+import Data.Vector as V (Vector, (!), generate, zipWith)
 import Data.Vector.Generic (convert)
 import Data.Word (Word8)
 
@@ -19,14 +17,14 @@ class (Functor m, Shape (MatrixShape m)) => Matrix m where
     type MatrixShape m :: *
     mindex :: m a -> a -> MatrixShape m -> a
     minside :: m a -> MatrixShape m -> Bool
-    newMatrix :: MatrixShape m -> (MatrixShape m -> a) -> m a
+    mrun :: (m a -> MatrixShape m -> b) -> m a -> m b
+    mnew :: MatrixShape m -> (MatrixShape m -> a) -> m a
     mzipWith :: (a -> b -> c) -> m a -> m b -> m c
     msize :: m a -> MatrixShape m
 
 --- VECTOR PROCESSING MATRIX
 
-data Shape sh => MatrixVector sh a = MatrixVector { vmShape :: !sh, vmData :: !(Vector a) }
-
+data Shape sh => MatrixVector sh a = MatrixVector { vmShape :: !sh, vmData :: Vector a }
 
 instance Shape sh => Functor (MatrixVector sh) where
     fmap f (MatrixVector sh d) = MatrixVector sh $ fmap f d
@@ -37,7 +35,8 @@ instance Shape sh => Matrix (MatrixVector sh) where
         | minside mat p = d V.! (toIndex sh p)
         | otherwise = v
     minside d !p = inShape (vmShape d) p
-    newMatrix sh f = MatrixVector sh $ generate (size sh) (f . fromIndex sh)
+    mrun f d = MatrixVector (vmShape d) $ generate (size $ vmShape d) (f d . fromIndex (vmShape d))
+    mnew sh f = MatrixVector sh $ generate (size sh) (f . fromIndex sh)
     mzipWith f (MatrixVector sha a) (MatrixVector shb b)
         | sha == shb = MatrixVector sha $ V.zipWith f a b
         | otherwise = error "Mismatching shapes"
@@ -62,7 +61,8 @@ instance Shape sh => Matrix (MatrixArray sh) where
         | minside mat p = d R.! p
         | otherwise = v
     minside (MatrixArray d) !p = inShape (extent d) p
-    newMatrix sh f = MatrixArray $ computeS $ fromFunction sh f
+    mrun f d = MatrixArray $ computeS $ fromFunction (msize d) $ f d
+    mnew sh f = MatrixArray $ computeS $ fromFunction sh f
     mzipWith f (MatrixArray a) (MatrixArray b) = MatrixArray $ computeS $ R.zipWith f a b
     msize (MatrixArray d) = extent d
 
@@ -85,7 +85,8 @@ instance Shape sh => Matrix (MatrixParallel sh) where
         | minside mat p = d R.! p
         | otherwise = v
     minside (MatrixParallel d) !p = inShape (extent d) p
-    newMatrix sh f = MatrixParallel $ runIdentity $ computeP $ fromFunction sh f
+    mrun f d = MatrixParallel $ runIdentity $ computeP $ fromFunction (msize d) $ f d
+    mnew sh f = MatrixParallel $ runIdentity $ computeP $ fromFunction sh f
     mzipWith f (MatrixParallel a) (MatrixParallel b) = MatrixParallel $ runIdentity $ computeP $ R.zipWith f a b
     msize (MatrixParallel d) = extent d
 
@@ -136,7 +137,7 @@ instance Matrix m => Functor (FocusedMatrix m) where
 instance Matrix m => Comonad (FocusedMatrix m) where
     extract (FocusedMatrix mat p) = mindex mat undefined p
     extend f (FocusedMatrix mat p) = FocusedMatrix
-        (newMatrix (msize mat) $ \p -> f $ FocusedMatrix mat p)
+        (mrun (\mat p -> f $ FocusedMatrix mat p) mat)
         p
 
 index :: Matrix m => FocusedMatrix m a -> a -> MatrixShape m -> a
