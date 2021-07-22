@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns, FlexibleContexts, FlexibleInstances, TypeFamilies #-}
+{-# LANGUAGE BangPatterns, FlexibleInstances, MultiParamTypeClasses #-}
 module MatrixComonad where
 
 import qualified Codec.Picture as Juicy
@@ -13,14 +13,13 @@ import Data.Vector as V (Vector, (!), generate, zipWith)
 import Data.Vector.Generic (convert)
 import Data.Word (Word8)
 
-class (Functor m, Shape (MatrixShape m)) => Matrix m where
-    type MatrixShape m :: *
-    mindex :: m a -> a -> MatrixShape m -> a
-    minside :: m a -> MatrixShape m -> Bool
-    mrun :: (m a -> MatrixShape m -> b) -> m a -> m b
-    mnew :: MatrixShape m -> (MatrixShape m -> a) -> m a
-    mzipWith :: (a -> b -> c) -> m a -> m b -> m c
-    msize :: m a -> MatrixShape m
+class (Functor (m sh), Shape sh) => Matrix m sh where
+    mindex :: m sh a -> a -> sh -> a
+    minside :: m sh a -> sh -> Bool
+    mrun :: (m sh a -> sh -> b) -> m sh a -> m sh b
+    mnew :: sh -> (sh -> a) -> m sh a
+    mzipWith :: (a -> b -> c) -> m sh a -> m sh b -> m sh c
+    msize :: m sh a -> sh
 
 --- VECTOR PROCESSING MATRIX
 
@@ -29,8 +28,7 @@ data Shape sh => MatrixVector sh a = MatrixVector { vmShape :: !sh, vmData :: Ve
 instance Shape sh => Functor (MatrixVector sh) where
     fmap f (MatrixVector sh d) = MatrixVector sh $ fmap f d
 
-instance Shape sh => Matrix (MatrixVector sh) where
-    type MatrixShape (MatrixVector sh) = sh
+instance Shape sh => Matrix MatrixVector sh where
     mindex mat@(MatrixVector sh d) v !p
         | minside mat p = d V.! (toIndex sh p)
         | otherwise = v
@@ -55,8 +53,7 @@ fromArray (MatrixArray d) = MatrixVector (extent d) $ toVector d
 instance Shape sh => Functor (MatrixArray sh) where
     fmap f (MatrixArray d) = MatrixArray $ computeS $ R.map f d
 
-instance Shape sh => Matrix (MatrixArray sh) where
-    type MatrixShape (MatrixArray sh) = sh
+instance Shape sh => Matrix MatrixArray sh where
     mindex mat@(MatrixArray d) v !p
         | minside mat p = d R.! p
         | otherwise = v
@@ -79,8 +76,7 @@ fromParallel (MatrixParallel d) = MatrixVector (extent d) $ toVector d
 instance Shape sh => Functor (MatrixParallel sh) where
     fmap f (MatrixParallel d) = MatrixParallel $ runIdentity $ computeP $ R.map f d
 
-instance Shape sh => Matrix (MatrixParallel sh) where
-    type MatrixShape (MatrixParallel sh) = sh
+instance Shape sh => Matrix MatrixParallel sh where
     mindex mat@(MatrixParallel d) v !p
         | minside mat p = d R.! p
         | otherwise = v
@@ -118,37 +114,37 @@ writeGifAnim filePath imgs = fromRight undefined $
 
 --- IMAGE COMONAD
 
-data Matrix m => FocusedMatrix m a = FocusedMatrix {
-    unfocus :: !(m a),
-    focusCoordinates :: !(MatrixShape m) }
+data (Matrix m sh, Shape sh) => FocusedMatrix m sh a = FocusedMatrix {
+    unfocus :: !(m sh a),
+    focusCoordinates :: !sh }
 
-focus :: Matrix m => m a -> FocusedMatrix m a
+focus :: (Matrix m sh, Shape sh) => m sh a -> FocusedMatrix m sh a
 focus mat
     | msize mat /= zeroDim = FocusedMatrix mat zeroDim
     | otherwise = error "Cannot focus empty images"
 
-zipWith :: Matrix m => (a -> b -> c) -> FocusedMatrix m a -> FocusedMatrix m b -> FocusedMatrix m c
+zipWith :: (Matrix m sh, Shape sh) => (a -> b -> c) -> FocusedMatrix m sh a -> FocusedMatrix m sh b -> FocusedMatrix m sh c
 zipWith f (FocusedMatrix a _) (FocusedMatrix b c) =
     FocusedMatrix (mzipWith f a b) c
 
-instance Matrix m => Functor (FocusedMatrix m) where
+instance (Matrix m sh, Shape sh) => Functor (FocusedMatrix m sh) where
     fmap f (FocusedMatrix mat c) = FocusedMatrix (fmap f mat) c
 
-instance Matrix m => Comonad (FocusedMatrix m) where
+instance (Matrix m sh, Shape sh) => Comonad (FocusedMatrix m sh) where
     extract (FocusedMatrix mat p) = mindex mat undefined p
     extend f (FocusedMatrix mat p) = FocusedMatrix
         (mrun (\mat p -> f $ FocusedMatrix mat p) mat)
         p
 
-index :: Matrix m => FocusedMatrix m a -> a -> MatrixShape m -> a
+index :: (Matrix m sh, Shape sh) => FocusedMatrix m sh a -> a -> sh -> a
 index (FocusedMatrix mat fp) d p = mindex mat d $ addDim fp p
-{-# SPECIALIZE MatrixComonad.index :: Shape sh => FocusedMatrix (MatrixVector sh) a -> a -> sh -> a #-}
-{-# SPECIALIZE MatrixComonad.index :: Shape sh => FocusedMatrix (MatrixArray sh) a -> a -> sh -> a #-}
-{-# SPECIALIZE MatrixComonad.index :: Shape sh => FocusedMatrix (MatrixParallel sh) a -> a -> sh -> a #-}
+{-# SPECIALIZE MatrixComonad.index :: Shape sh => FocusedMatrix MatrixVector sh a -> a -> sh -> a #-}
+{-# SPECIALIZE MatrixComonad.index :: Shape sh => FocusedMatrix MatrixArray sh a -> a -> sh -> a #-}
+{-# SPECIALIZE MatrixComonad.index :: Shape sh => FocusedMatrix MatrixParallel sh a -> a -> sh -> a #-}
 
-inside :: Matrix m => FocusedMatrix m a -> MatrixShape m -> Bool
+inside :: (Matrix m sh, Shape sh) => FocusedMatrix m sh a -> sh -> Bool
 inside (FocusedMatrix mat fp) p = minside mat $ addDim fp p
-{-# SPECIALIZE inside :: Shape sh => FocusedMatrix (MatrixVector sh) a -> sh -> Bool #-}
-{-# SPECIALIZE inside :: Shape sh => FocusedMatrix (MatrixArray sh) a -> sh -> Bool #-}
-{-# SPECIALIZE inside :: Shape sh => FocusedMatrix (MatrixParallel sh) a -> sh -> Bool #-}
+{-# SPECIALIZE inside :: Shape sh => FocusedMatrix MatrixVector sh a -> sh -> Bool #-}
+{-# SPECIALIZE inside :: Shape sh => FocusedMatrix MatrixArray sh a -> sh -> Bool #-}
+{-# SPECIALIZE inside :: Shape sh => FocusedMatrix MatrixParallel sh a -> sh -> Bool #-}
 

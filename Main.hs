@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns, TypeFamilies #-}
+{-# LANGUAGE BangPatterns, FlexibleContexts #-}
 module Main where
 
 import Control.Comonad (extend, extract)
@@ -25,11 +25,11 @@ gaussianBlur' r = vertical . horizontal
               foldl' add 0 [ gauss (fromIntegral (y' - y)) * mindex img 0 (ix2 x y') | y' <- [y - 3*(round r) .. y + 3*(round r)] ]
           gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
 
-gradient :: (Matrix m, MatrixShape m ~ DIM2, Num p) => FocusedMatrix m p -> FocusedMatrix m (p, p)
+gradient :: (Matrix m DIM2, Num p) => FocusedMatrix m DIM2 p -> FocusedMatrix m DIM2 (p, p)
 gradient = extend $ \img ->
     let v = extract img in (index img v (ix2 1 0) - v, index img v (ix2 0 1) - v)
 
-gradient' :: (Matrix m, MatrixShape m ~ DIM2, Num p) => m p -> m (p, p)
+gradient' :: (Matrix m DIM2, Num p) => m DIM2 p -> m DIM2 (p, p)
 gradient' = mrun $ \img (Z :. x :. y) ->
     let v = mindex img undefined (ix2 x y) in (mindex img v (ix2 (x + 1) y) - v, mindex img v (ix2 x (y + 1)) - v)
 
@@ -54,9 +54,9 @@ autolight img = MatrixComonad.zipWith (*) img $ gaussianBlur 1 shadow
           dist = distance distr $ fmap (< 0.5) img
           mdist = fmap (\v -> distw * ((1 / (1 + exp (-v * 6 / distr))) - 1)) dist
           shadow = fmap ((+ 0.8) . (* 0.2) . signum) $ MatrixComonad.zipWith (+) delta mdist
-{-# SPECIALIZE autolight :: FocusedMatrix (MatrixVector DIM2) Float -> FocusedMatrix (MatrixVector DIM2) Float #-}
-{-# SPECIALIZE autolight :: FocusedMatrix (MatrixArray DIM2) Float -> FocusedMatrix (MatrixArray DIM2) Float #-}
-{-# SPECIALIZE autolight :: FocusedMatrix (MatrixParallel DIM2) Float -> FocusedMatrix (MatrixParallel DIM2) Float #-}
+{-# SPECIALIZE autolight :: FocusedMatrix MatrixVector DIM2 Float -> FocusedMatrix MatrixVector DIM2 Float #-}
+{-# SPECIALIZE autolight :: FocusedMatrix MatrixArray DIM2 Float -> FocusedMatrix MatrixArray DIM2 Float #-}
+{-# SPECIALIZE autolight :: FocusedMatrix MatrixParallel DIM2 Float -> FocusedMatrix MatrixParallel DIM2 Float #-}
 
 autolight' img = mzipWith (*) img $ gaussianBlur' 1 shadow
     where (Z :. w :. h) = msize img
@@ -75,15 +75,15 @@ autolight' img = mzipWith (*) img $ gaussianBlur' 1 shadow
 {-# SPECIALIZE autolight' :: MatrixArray DIM2 Float -> MatrixArray DIM2 Float #-}
 {-# SPECIALIZE autolight' :: MatrixParallel DIM2 Float -> MatrixParallel DIM2 Float #-}
 
-gameOfLife :: (Matrix i, MatrixShape i ~ DIM2) => FocusedMatrix i Bool -> FocusedMatrix i Bool
+gameOfLife :: Matrix m DIM2 => FocusedMatrix m DIM2 Bool -> FocusedMatrix m DIM2 Bool
 gameOfLife = extend $ \img ->
     let n = sum [ if index img False (ix2 x y) then 1 else 0 | x <- [-1 .. 1], y <- [-1 .. 1], (x, y) /= (0, 0) ] in
         n == 3 || (extract img && n == 2)
-{-# SPECIALIZE gameOfLife :: FocusedMatrix (MatrixVector DIM2) Bool -> FocusedMatrix (MatrixVector DIM2) Bool #-}
-{-# SPECIALIZE gameOfLife :: FocusedMatrix (MatrixArray DIM2) Bool -> FocusedMatrix (MatrixArray DIM2) Bool #-}
-{-# SPECIALIZE gameOfLife :: FocusedMatrix (MatrixParallel DIM2) Bool -> FocusedMatrix (MatrixParallel DIM2) Bool #-}
+{-# SPECIALIZE gameOfLife :: FocusedMatrix MatrixVector DIM2 Bool -> FocusedMatrix MatrixVector DIM2 Bool #-}
+{-# SPECIALIZE gameOfLife :: FocusedMatrix MatrixArray DIM2 Bool -> FocusedMatrix MatrixArray DIM2 Bool #-}
+{-# SPECIALIZE gameOfLife :: FocusedMatrix MatrixParallel DIM2 Bool -> FocusedMatrix MatrixParallel DIM2 Bool #-}
 
-gameOfLife' :: (Matrix i, MatrixShape i ~ DIM2) => i Bool -> i Bool
+gameOfLife' :: Matrix m DIM2 => m DIM2 Bool -> m DIM2 Bool
 gameOfLife' = mrun $ \img (Z :. x :. y) ->
     let n = sum [ if mindex img False (ix2 (x + dx) (y + dy)) then 1 else 0 | dx <- [-1 .. 1], dy <- [-1 .. 1], (dx, dy) /= (0, 0) ] in
         n == 3 || (mindex img False (ix2 x y) && n == 2)
@@ -94,13 +94,13 @@ gameOfLife' = mrun $ \img (Z :. x :. y) ->
 takeiterate 0 _ _ = []
 takeiterate !n f a = a : takeiterate (n - 1) f (f a)
 
-toB :: Matrix i => i Word8 -> i Bool
+toB :: Matrix m DIM2 => m DIM2 Word8 -> m DIM2 Bool
 toB = fmap (> 0.5) . toF
-fromB :: Matrix i => i Bool -> i Word8
+fromB :: Matrix m DIM2 => m DIM2 Bool -> m DIM2 Word8
 fromB = fromF . fmap (\v -> if v then 1 else 0)
-toF :: Matrix i => i Word8 -> i Float
+toF :: Matrix m DIM2 => m DIM2 Word8 -> m DIM2 Float
 toF = fmap ((/ 256) . fromIntegral)
-fromF :: Matrix i => i Float -> i Word8
+fromF :: Matrix m DIM2 => m DIM2 Float -> m DIM2 Word8
 fromF = fmap (toEnum . round . (* 255) . clamp 0 1)
 clamp a b c
     | c < a = a
