@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns, ConstraintKinds, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, TypeFamilies, UndecidableInstances #-}
+{-# LANGUAGE ConstraintKinds, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, TypeFamilies, UndecidableInstances #-}
 module MatrixComonad where
 
 import qualified Codec.Picture as Juicy
@@ -11,8 +11,9 @@ import Data.Array.Repa.Repr.Vector
 import Data.Either (fromRight)
 import Data.Maybe (fromJust)
 import Data.Kind (Constraint)
-import Data.Vector as V (Vector, (!), generate, zipWith)
+import Data.Vector as V (Vector, (!), generate, map, zipWith)
 import Data.Vector.Generic (convert)
+import Data.Vector.Unboxed (Unbox)
 import Data.Word (Word8)
 
 type Matrix m p sh a = (Shape sh, MatrixImpl m p sh a, MValid m p sh a,
@@ -30,7 +31,8 @@ class MatrixImpl m p sh a where
     mresult = mmap id
     mindex :: Matrix m p sh a => m p sh a -> a -> sh -> a
     minside :: Matrix m p sh a => m p sh a -> sh -> Bool
-    mrun :: Matrix m p sh a => (m (MNormal m) sh a -> sh -> b) -> m p sh a -> m (MResult m) sh b
+    minside d p = inShape (msize d) p
+    mrun :: (Matrix m p sh a, Matrix m (MResult m) sh b) => (m (MNormal m) sh a -> sh -> b) -> m p sh a -> m (MResult m) sh b
     mnew :: (Matrix m p sh a, p ~ MResult m) => sh -> (sh -> a) -> m p sh a
     mmap :: (Matrix m p sh a, Matrix m (MResult m) sh b) => (a -> b) -> m p sh a -> m (MResult m) sh b
     mzipWith :: (Matrix m p sh a, Matrix m q sh b, Matrix m (MResult m) sh c) => (a -> b -> c) -> m p sh a -> m q sh b -> m (MResult m) sh c
@@ -38,16 +40,16 @@ class MatrixImpl m p sh a where
 
 --- VECTOR PROCESSING MATRIX
 
-data MatrixVector r sh a = MatrixVector { vmShape :: !sh, vmData :: Vector a }
+data MatrixVector r sh a = MatrixVector { vmShape :: sh, vmData :: Vector a }
 
 instance MatrixImpl MatrixVector () sh a where
-    mindex mat@(MatrixVector sh d) v !p
+    mresult = id
+    mindex mat@(MatrixVector sh d) v p
         | minside mat p = d V.! (toIndex sh p)
         | otherwise = v
-    minside d !p = inShape (vmShape d) p
     mrun f d = MatrixVector (vmShape d) $ generate (size $ vmShape d) (f d . fromIndex (vmShape d))
     mnew sh f = MatrixVector sh $ generate (size sh) (f . fromIndex sh)
-    mmap f (MatrixVector sh d) = MatrixVector sh $ fmap f d
+    mmap f (MatrixVector sh d) = MatrixVector sh $ V.map f d
     mzipWith f (MatrixVector sha a) (MatrixVector shb b)
         | sha == shb = MatrixVector sha $ V.zipWith f a b
         | otherwise = error "Mismatching shapes"
@@ -60,28 +62,28 @@ class RepaEvaluator m r sh a where
 
 newtype MatrixArray r sh a = MatrixArray { smData :: Array r sh a }
 
-toArray :: MatrixVector () sh a -> MatrixArray V sh a
-toArray (MatrixVector sh d) = MatrixArray $ fromVector sh d
+toArray :: Unbox a => MatrixVector () sh a -> MatrixArray U sh a
+toArray (MatrixVector sh d) = MatrixArray $ fromUnboxed sh $ convert d
 
-fromArray :: (Matrix MatrixArray r sh a, RepaEvaluator MatrixArray r sh a) =>
+fromArray :: (Unbox a, Matrix MatrixArray r sh a, RepaEvaluator MatrixArray r sh a) =>
              MatrixArray r sh a -> MatrixVector () sh a
-fromArray d = MatrixVector (msize d) $ toVector $ smData $ revaluate d
+fromArray d = MatrixVector (msize d) $ convert $ toUnboxed $ smData $ revaluate d
 
-instance RepaEvaluator MatrixArray V sh a where
+instance RepaEvaluator MatrixArray U sh a where
     revaluate = id
 
-instance RepaEvaluator MatrixArray D sh a where
-    revaluate = MatrixArray . computeS . smData
+instance Unbox a => RepaEvaluator MatrixArray D sh a where
+    revaluate d = deepSeqArray x $ MatrixArray x
+        where x = computeS $ smData d
 
 instance RepaEvaluator MatrixArray r sh a => MatrixImpl MatrixArray r sh a where
     type MValid MatrixArray r sh a = Source r a
     type MResult MatrixArray = D
-    type MNormal MatrixArray = V
+    type MNormal MatrixArray = U
     mresult (MatrixArray d) = MatrixArray $ delay d
-    mindex mat@(MatrixArray d) v !p
+    mindex mat@(MatrixArray d) v p
         | minside mat p = d R.! p
         | otherwise = v
-    minside (MatrixArray d) !p = inShape (extent d) p
     mrun f d = MatrixArray $ fromFunction (msize d) $ f $ revaluate d
     mmap f (MatrixArray d) = MatrixArray $ R.map f d
     mnew sh f = MatrixArray $ fromFunction sh f
@@ -92,28 +94,28 @@ instance RepaEvaluator MatrixArray r sh a => MatrixImpl MatrixArray r sh a where
 
 newtype Shape sh => MatrixParallel r sh a = MatrixParallel { pmData :: Array r sh a }
 
-instance RepaEvaluator MatrixParallel V sh a where
+instance RepaEvaluator MatrixParallel U sh a where
     revaluate = id
 
-instance RepaEvaluator MatrixParallel D sh a where
-    revaluate = MatrixParallel . runIdentity . computeP . pmData
+instance Unbox a => RepaEvaluator MatrixParallel D sh a where
+    revaluate d = deepSeqArray x $ MatrixParallel x
+        where x = runIdentity $ computeP $ pmData d
 
-toParallel :: Shape sh => MatrixVector () sh a -> MatrixParallel V sh a
-toParallel (MatrixVector sh d) = MatrixParallel $ fromVector sh d
+toParallel :: (Unbox a, Shape sh) => MatrixVector () sh a -> MatrixParallel U sh a
+toParallel (MatrixVector sh d) = MatrixParallel $ fromUnboxed sh $ convert d
 
-fromParallel :: (Matrix MatrixParallel r sh a, RepaEvaluator MatrixParallel r sh a) =>
+fromParallel :: (Unbox a, Matrix MatrixParallel r sh a, RepaEvaluator MatrixParallel r sh a) =>
                 MatrixParallel r sh a -> MatrixVector () sh a
-fromParallel d = MatrixVector (msize d) $ toVector $ pmData $ revaluate d
+fromParallel d = MatrixVector (msize d) $ convert $ toUnboxed $ pmData $ revaluate d
 
 instance RepaEvaluator MatrixParallel r sh a => MatrixImpl MatrixParallel r sh a where
     type MValid MatrixParallel r sh a = Source r a
     type MResult MatrixParallel = D
-    type MNormal MatrixParallel = V
+    type MNormal MatrixParallel = U
     mresult (MatrixParallel d) = MatrixParallel $ delay d
-    mindex mat@(MatrixParallel d) v !p
+    mindex mat@(MatrixParallel d) v p
         | minside mat p = d R.! p
         | otherwise = v
-    minside (MatrixParallel d) !p = inShape (extent d) p
     mrun f d = MatrixParallel $ fromFunction (msize d) $ f $ revaluate d
     mnew sh f = MatrixParallel $ fromFunction sh f
     mmap f (MatrixParallel d) = MatrixParallel $ R.map f d

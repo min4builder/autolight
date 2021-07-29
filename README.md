@@ -1,15 +1,8 @@
 # autolight
 
-This is a basic comonadic implementation of an automatic lighting algorithm for
-line art in Haskell.
-
 To run:
 
-    cabal run autolight <image> <output>.png
-
-Also Conway's game of life:
-
-    cabal run autolight -- -c <image> <animation>.gif
+    stack run
 
 ## How it works
 

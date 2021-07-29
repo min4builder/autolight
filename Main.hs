@@ -1,10 +1,9 @@
 {-# LANGUAGE BangPatterns, FlexibleContexts #-}
 module Main where
 
-import Data.Array.Repa (D)
+import Data.Array.Repa (D, U)
 import Data.Array.Repa.Index
 import Data.Array.Repa.Shape
-import Data.Array.Repa.Repr.Vector --(V, toVector)
 import Data.List (foldl')
 import Data.Word (Word8)
 import MatrixComonad as MC
@@ -56,6 +55,9 @@ autolight img = MC.zipWith (*) img $ gaussianBlur 1 shadow
           dist = distance distr $ MC.map (< 0.5) img
           mdist = MC.map (\v -> distw * ((1 / (1 + exp (-v * 6 / distr))) - 1)) dist
           shadow = MC.map ((+ 0.8) . (* 0.2) . signum) $ MC.zipWith (+) delta mdist
+{-# SPECIALIZE autolight :: FocusedMatrix MatrixVector () DIM2 Float -> FocusedMatrix MatrixVector () DIM2 Float #-}
+{-# SPECIALIZE autolight :: FocusedMatrix MatrixArray U DIM2 Float -> FocusedMatrix MatrixArray D DIM2 Float #-}
+{-# SPECIALIZE autolight :: FocusedMatrix MatrixParallel U DIM2 Float -> FocusedMatrix MatrixParallel D DIM2 Float #-}
 
 autolight' img = mzipWith (*) img $ gaussianBlur' 1 shadow
     where (Z :. w :. h) = msize img
@@ -70,19 +72,28 @@ autolight' img = mzipWith (*) img $ gaussianBlur' 1 shadow
           dist = distance' distr $ mmap (< 0.5) img
           mdist = mmap (\v -> distw * ((1 / (1 + exp (-v * 6 / distr))) - 1)) dist
           shadow = mmap ((+ 0.8) . (* 0.2) . signum) $ mzipWith (+) delta mdist
+{-# SPECIALIZE autolight' :: MatrixVector () DIM2 Float -> MatrixVector () DIM2 Float #-}
+{-# SPECIALIZE autolight' :: MatrixArray U DIM2 Float -> MatrixArray D DIM2 Float #-}
+{-# SPECIALIZE autolight' :: MatrixParallel U DIM2 Float -> MatrixParallel D DIM2 Float #-}
 
 gameOfLife :: Matrix m (MResult m) DIM2 Bool => FocusedMatrix m (MResult m) DIM2 Bool -> FocusedMatrix m (MResult m) DIM2 Bool
 gameOfLife = extend $ \img ->
     let n = sum [ if index img False (ix2 x y) then 1 else 0 | x <- [-1 .. 1], y <- [-1 .. 1], (x, y) /= (0, 0) ] in
         n == 3 || (extract img && n == 2)
+{-# SPECIALIZE gameOfLife :: FocusedMatrix MatrixVector () DIM2 Bool -> FocusedMatrix MatrixVector () DIM2 Bool #-}
+{-# SPECIALIZE gameOfLife :: FocusedMatrix MatrixArray D DIM2 Bool -> FocusedMatrix MatrixArray D DIM2 Bool #-}
+{-# SPECIALIZE gameOfLife :: FocusedMatrix MatrixParallel D DIM2 Bool -> FocusedMatrix MatrixParallel D DIM2 Bool #-}
 
 gameOfLife' :: Matrix m (MResult m) DIM2 Bool => m (MResult m) DIM2 Bool -> m (MResult m) DIM2 Bool
 gameOfLife' = mrun $ \img (Z :. x :. y) ->
     let n = sum [ if mindex img False (ix2 (x + dx) (y + dy)) then 1 else 0 | dx <- [-1 .. 1], dy <- [-1 .. 1], (dx, dy) /= (0, 0) ] in
         n == 3 || (mindex img False (ix2 x y) && n == 2)
+{-# SPECIALIZE gameOfLife' :: MatrixVector () DIM2 Bool -> MatrixVector () DIM2 Bool #-}
+{-# SPECIALIZE gameOfLife' :: MatrixArray D DIM2 Bool -> MatrixArray D DIM2 Bool #-}
+{-# SPECIALIZE gameOfLife' :: MatrixParallel D DIM2 Bool -> MatrixParallel D DIM2 Bool #-}
 
 takeiterate 0 _ _ = []
-takeiterate !n f a = a : takeiterate (n - 1) f (f a)
+takeiterate n f a = a : takeiterate (n - 1) f (f a)
 
 toF :: (Matrix m r sh Word8, Matrix m (MResult m) sh Float) =>
        m r sh Word8 -> m (MResult m) sh Float
