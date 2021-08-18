@@ -1,4 +1,4 @@
-{-# LANGUAGE ConstraintKinds, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, TypeFamilies, UndecidableInstances #-}
+{-# LANGUAGE ConstraintKinds, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, Strict, TypeFamilies, UndecidableInstances #-}
 module MatrixComonad where
 
 import qualified Codec.Picture as Juicy
@@ -44,7 +44,7 @@ data MatrixVector r sh a = MatrixVector { vmShape :: sh, vmData :: Vector a }
 
 instance MatrixImpl MatrixVector () sh a where
     mresult = id
-    mindex mat@(MatrixVector sh d) v p
+    mindex mat@(MatrixVector sh d) ~v p
         | minside mat p = d V.! (toIndex sh p)
         | otherwise = v
     mrun f d = MatrixVector (vmShape d) $ generate (size $ vmShape d) (f d . fromIndex (vmShape d))
@@ -73,18 +73,17 @@ instance RepaEvaluator MatrixArray U sh a where
     revaluate = id
 
 instance Unbox a => RepaEvaluator MatrixArray D sh a where
-    revaluate d = deepSeqArray x $ MatrixArray x
-        where x = computeS $ smData d
+    revaluate = MatrixArray . computeS . smData
 
 instance RepaEvaluator MatrixArray r sh a => MatrixImpl MatrixArray r sh a where
     type MValid MatrixArray r sh a = Source r a
     type MResult MatrixArray = D
     type MNormal MatrixArray = U
     mresult (MatrixArray d) = MatrixArray $ delay d
-    mindex mat@(MatrixArray d) v p
+    mindex mat@(MatrixArray d) ~v p
         | minside mat p = d R.! p
         | otherwise = v
-    mrun f d = MatrixArray $ fromFunction (msize d) $ f $ revaluate d
+    mrun f d = let v = revaluate d in MatrixArray $ fromFunction (msize d) $ f v
     mmap f (MatrixArray d) = MatrixArray $ R.map f d
     mnew sh f = MatrixArray $ fromFunction sh f
     mzipWith f (MatrixArray a) (MatrixArray b) = MatrixArray $ R.zipWith f a b
@@ -98,8 +97,7 @@ instance RepaEvaluator MatrixParallel U sh a where
     revaluate = id
 
 instance Unbox a => RepaEvaluator MatrixParallel D sh a where
-    revaluate d = deepSeqArray x $ MatrixParallel x
-        where x = runIdentity $ computeP $ pmData d
+    revaluate = MatrixParallel . runIdentity . computeP . pmData
 
 toParallel :: (Unbox a, Shape sh) => MatrixVector () sh a -> MatrixParallel U sh a
 toParallel (MatrixVector sh d) = MatrixParallel $ fromUnboxed sh $ convert d
@@ -113,10 +111,10 @@ instance RepaEvaluator MatrixParallel r sh a => MatrixImpl MatrixParallel r sh a
     type MResult MatrixParallel = D
     type MNormal MatrixParallel = U
     mresult (MatrixParallel d) = MatrixParallel $ delay d
-    mindex mat@(MatrixParallel d) v p
+    mindex mat@(MatrixParallel d) ~v p
         | minside mat p = d R.! p
         | otherwise = v
-    mrun f d = MatrixParallel $ fromFunction (msize d) $ f $ revaluate d
+    mrun f d = let v = revaluate d in MatrixParallel $ fromFunction (msize d) $ f v
     mnew sh f = MatrixParallel $ fromFunction sh f
     mmap f (MatrixParallel d) = MatrixParallel $ R.map f d
     mzipWith f (MatrixParallel a) (MatrixParallel b) = MatrixParallel $ R.zipWith f a b
