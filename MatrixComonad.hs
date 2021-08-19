@@ -1,4 +1,4 @@
-{-# LANGUAGE ConstraintKinds, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, Strict, TypeFamilies, UndecidableInstances #-}
+{-# LANGUAGE BangPatterns, ConstraintKinds, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, TypeFamilies, UndecidableInstances #-}
 module MatrixComonad where
 
 import qualified Codec.Picture as Juicy
@@ -83,7 +83,7 @@ instance RepaEvaluator MatrixArray r sh a => MatrixImpl MatrixArray r sh a where
     mindex mat@(MatrixArray d) ~v p
         | minside mat p = d R.! p
         | otherwise = v
-    mrun f d = let v = revaluate d in MatrixArray $ fromFunction (msize d) $ f v
+    mrun f d = let !v = revaluate d in MatrixArray $ fromFunction (msize d) $ f v
     mmap f (MatrixArray d) = MatrixArray $ R.map f d
     mnew sh f = MatrixArray $ fromFunction sh f
     mzipWith f (MatrixArray a) (MatrixArray b) = MatrixArray $ R.zipWith f a b
@@ -114,7 +114,7 @@ instance RepaEvaluator MatrixParallel r sh a => MatrixImpl MatrixParallel r sh a
     mindex mat@(MatrixParallel d) ~v p
         | minside mat p = d R.! p
         | otherwise = v
-    mrun f d = let v = revaluate d in MatrixParallel $ fromFunction (msize d) $ f v
+    mrun f d = let !v = revaluate d in MatrixParallel $ fromFunction (msize d) $ f v
     mnew sh f = MatrixParallel $ fromFunction sh f
     mmap f (MatrixParallel d) = MatrixParallel $ R.map f d
     mzipWith f (MatrixParallel a) (MatrixParallel b) = MatrixParallel $ R.zipWith f a b
@@ -149,8 +149,8 @@ writeGifAnim filePath imgs = fromRight undefined $
 --- IMAGE COMONAD
 
 data Matrix m r sh a => FocusedMatrix m r sh a = FocusedMatrix {
-    unfocus :: !(m r sh a),
-    focusCoordinates :: !sh }
+    unfocus :: m r sh a,
+    focusCoordinates :: sh }
 
 focus :: Matrix m r sh a => m r sh a -> FocusedMatrix m r sh a
 focus mat
