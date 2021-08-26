@@ -3,44 +3,50 @@ module Main where
 
 import Data.Array.Repa (D, U)
 import Data.Array.Repa.Index
-import Data.Array.Repa.Shape
+import Data.Default (Default, def)
 import Data.List (foldl')
 import Data.Word (Word8)
 import MatrixComonad as MC
 
 import Criterion.Main
 
+instance Default Bool where
+    def = False
+
+mget m p = if minside m p then mindex m p else def
+get m p = if inside m p then index m p else def
+
 gaussianBlur r = vertical . horizontal
     where add !a !b = a + b
-          horizontal = extend $ \img -> foldl' add 0 [ gauss (fromIntegral x) * index img 0 (ix2 x 0) | x <- [-3*(round r) .. 3*(round r)] ]
-          vertical = extend $ \img -> foldl' add 0 [ gauss (fromIntegral y) * index img 0 (ix2 0 y) | y <- [-3*(round r) .. 3*(round r)] ]
+          horizontal = extend $ \img -> foldl' add 0 [ gauss (fromIntegral x) * get img (ix2 x 0) | x <- [-3*(round r) .. 3*(round r)] ]
+          vertical = extend $ \img -> foldl' add 0 [ gauss (fromIntegral y) * get img (ix2 0 y) | y <- [-3*(round r) .. 3*(round r)] ]
           gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
 
 gaussianBlur' r = vertical . horizontal
     where add !a !b = a + b
           horizontal = mrun $ \img (Z :. x :. y) ->
-              foldl' add 0 [ gauss (fromIntegral (x' - x)) * mindex img 0 (ix2 x' y) | x' <- [x - 3*(round r) .. x + 3*(round r)] ]
+              foldl' add 0 [ gauss (fromIntegral (x' - x)) * mget img (ix2 x' y) | x' <- [x - 3*(round r) .. x + 3*(round r)] ]
           vertical = mrun $ \img (Z :. x :. y) ->
-              foldl' add 0 [ gauss (fromIntegral (y' - y)) * mindex img 0 (ix2 x y') | y' <- [y - 3*(round r) .. y + 3*(round r)] ]
+              foldl' add 0 [ gauss (fromIntegral (y' - y)) * mget img (ix2 x y') | y' <- [y - 3*(round r) .. y + 3*(round r)] ]
           gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
 
-gradient :: (Matrix m r DIM2 p, Matrix m (MResult m) DIM2 (p, p), Num p) =>
+gradient :: (Matrix m r DIM2 p, Matrix m (MResult m) DIM2 (p, p), Num p, Default p) =>
             FocusedMatrix m r DIM2 p -> FocusedMatrix m (MResult m) DIM2 (p, p)
 gradient = extend $ \img ->
-    let v = extract img in (index img v (ix2 1 0) - v, index img v (ix2 0 1) - v)
+    let v = extract img in (get img (ix2 1 0) - v, get img (ix2 0 1) - v)
 
-gradient' :: (Matrix m r DIM2 p, Matrix m (MResult m) DIM2 (p, p), Num p) =>
+gradient' :: (Matrix m r DIM2 p, Matrix m (MResult m) DIM2 (p, p), Num p, Default p) =>
              m r DIM2 p -> m (MResult m) DIM2 (p, p)
 gradient' = mrun $ \img (Z :. x :. y) ->
-    let v = mindex img undefined (ix2 x y) in (mindex img v (ix2 (x + 1) y) - v, mindex img v (ix2 x (y + 1)) - v)
+    let v = mget img (ix2 x y) in (mget img (ix2 (x + 1) y) - v, mget img (ix2 x (y + 1)) - v)
 
 distance r = extend $ \img ->
     minimum (r : [ sqrt (x*x + y*y) | x <- [-r .. r], y <- [-r .. r],
-        index img False (ix2 (round x) (round y)) ])
+        get img (ix2 (round x) (round y)) ])
 
 distance' r = mrun $ \img (Z :. x :. y) ->
     minimum (r : [ sqrt (x'*x' + y'*y') | x' <- [(fromIntegral x) - r .. (fromIntegral x) + r], y' <- [(fromIntegral y) - r .. (fromIntegral y) + r],
-        mindex img False (ix2 (round x') (round y')) ])
+        mget img (ix2 (round x') (round y')) ])
 
 autolight img = MC.zipWith (*) img $ gaussianBlur 1 shadow
     where (Z :. w :. h) = msize $ unfocus img
@@ -78,7 +84,7 @@ autolight' img = mzipWith (*) img $ gaussianBlur' 1 shadow
 
 gameOfLife :: Matrix m (MResult m) DIM2 Bool => FocusedMatrix m (MResult m) DIM2 Bool -> FocusedMatrix m (MResult m) DIM2 Bool
 gameOfLife = extend $ \img ->
-    let n = sum [ if index img False (ix2 x y) then 1 else 0 | x <- [-1 .. 1], y <- [-1 .. 1], (x, y) /= (0, 0) ] in
+    let n = sum [ if get img (ix2 x y) then 1 else 0 | x <- [-1 .. 1], y <- [-1 .. 1], (x, y) /= (0, 0) ] in
         n == 3 || (extract img && n == 2)
 {-# SPECIALIZE gameOfLife :: FocusedMatrix MatrixVector () DIM2 Bool -> FocusedMatrix MatrixVector () DIM2 Bool #-}
 {-# SPECIALIZE gameOfLife :: FocusedMatrix MatrixArray D DIM2 Bool -> FocusedMatrix MatrixArray D DIM2 Bool #-}
@@ -86,8 +92,8 @@ gameOfLife = extend $ \img ->
 
 gameOfLife' :: Matrix m (MResult m) DIM2 Bool => m (MResult m) DIM2 Bool -> m (MResult m) DIM2 Bool
 gameOfLife' = mrun $ \img (Z :. x :. y) ->
-    let n = sum [ if mindex img False (ix2 (x + dx) (y + dy)) then 1 else 0 | dx <- [-1 .. 1], dy <- [-1 .. 1], (dx, dy) /= (0, 0) ] in
-        n == 3 || (mindex img False (ix2 x y) && n == 2)
+    let n = sum [ if mget img (ix2 (x + dx) (y + dy)) then 1 else 0 | dx <- [-1 .. 1], dy <- [-1 .. 1], (dx, dy) /= (0, 0) ] in
+        n == 3 || (mget img (ix2 x y) && n == 2)
 {-# SPECIALIZE gameOfLife' :: MatrixVector () DIM2 Bool -> MatrixVector () DIM2 Bool #-}
 {-# SPECIALIZE gameOfLife' :: MatrixArray D DIM2 Bool -> MatrixArray D DIM2 Bool #-}
 {-# SPECIALIZE gameOfLife' :: MatrixParallel D DIM2 Bool -> MatrixParallel D DIM2 Bool #-}
