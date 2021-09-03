@@ -98,8 +98,8 @@ gameOfLife' = mrun $ \img (Z :. x :. y) ->
 {-# SPECIALIZE gameOfLife' :: MatrixArray D DIM2 Bool -> MatrixArray D DIM2 Bool #-}
 {-# SPECIALIZE gameOfLife' :: MatrixParallel D DIM2 Bool -> MatrixParallel D DIM2 Bool #-}
 
-takeiterate 0 _ _ = []
-takeiterate n f a = a : takeiterate (n - 1) f (f a)
+times 0 f !a = a
+times !n f !a = times (n - 1) f (f a)
 
 toF :: (Matrix m r sh Word8, Matrix m (MResult m) sh Float) =>
        m r sh Word8 -> m (MResult m) sh Float
@@ -116,7 +116,7 @@ clamp a b c
 
 main = do
     testsmall <- readImage "testsmall.png"
-    testbig <- readImage "testbig.png"
+    testbig <- readImage "test.png"
     life0 <- readImage "life0.png"
     defaultMain [
         bgroup "MatrixVector" [
@@ -124,24 +124,24 @@ main = do
             bench "testsmall'" $ nf (vmData . fromF . autolight') $ toF testsmall,
             bench "testbig" $ nf (vmData . fromF . unfocus . autolight) $ focus $ toF testbig,
             bench "testbig'" $ nf (vmData . fromF . autolight') $ toF testbig,
-            bench "life0" $ nf (vmData . fromB . last . Prelude.map unfocus . takeiterate 16 gameOfLife) $ focus $ toB life0,
-            bench "life0'" $ nf (vmData . fromB . last . takeiterate 16 gameOfLife') $ toB life0
+            bench "life0" $ nf (vmData . fromB . unfocus . times 128 gameOfLife) $ focus $ toB life0,
+            bench "life0'" $ nf (vmData . fromB . times 128 gameOfLife') $ toB life0
             ],
         bgroup "MatrixArray" [
             bench "testsmall" $ nf (vmData . fromF . fromArray . autolight') $ toArray $ toF testsmall,
             bench "testsmall" $ nf (vmData . fromF . fromArray . unfocus . autolight) $ focus $ toArray $ toF testsmall,
             bench "testbig" $ nf (vmData . fromF . fromArray . unfocus . autolight) $ focus $ toArray $ toF testbig,
             bench "testbig" $ nf (vmData . fromF . fromArray . autolight') $ toArray $ toF testbig,
-            bench "life0" $ nf (vmData . fromB . last . Prelude.map (fromArray . unfocus) . takeiterate 16 gameOfLife) $ focus $ mresult $ toArray $ toB life0,
-            bench "life0'" $ nf (vmData . fromB . last . Prelude.map fromArray . takeiterate 16 gameOfLife') $ mresult $ toArray $ toB life0
+            bench "life0" $ nf (vmData . fromB . fromArray . unfocus . times 128 gameOfLife) $ focus $ mresult $ toArray $ toB life0,
+            bench "life0'" $ nf (vmData . fromB . fromArray . times 128 gameOfLife') $ mresult $ toArray $ toB life0
             ],
         bgroup "MatrixParallel" [
             bench "testsmall" $ nf (vmData . fromF . fromParallel . unfocus . autolight) $ focus $ toParallel $ toF testsmall,
             bench "testsmall'" $ nf (vmData . fromF . fromParallel . autolight') $ toParallel $ toF testsmall,
             bench "testbig" $ nf (vmData . fromF . fromParallel . unfocus . autolight) $ focus $ toParallel $ toF testbig,
             bench "testbig'" $ nf (vmData . fromF . fromParallel . autolight') $ toParallel $ toF testbig,
-            bench "life0" $ nf (vmData . fromB . last . Prelude.map (fromParallel . unfocus) . takeiterate 16 gameOfLife) $ focus $ mresult $ toParallel $ toB life0,
-            bench "life0'" $ nf (vmData . fromB . last . Prelude.map fromParallel . takeiterate 16 gameOfLife') $ mresult $ toParallel $ toB life0
+            bench "life0" $ nf (vmData . fromB . fromParallel . unfocus . times 128 gameOfLife) $ focus $ mresult $ toParallel $ toB life0,
+            bench "life0'" $ nf (vmData . fromB . fromParallel . times 128 gameOfLife') $ mresult $ toParallel $ toB life0
             ]
         ]
 

@@ -2,7 +2,7 @@
 # https://docs.haskellstack.org/en/stable/yaml_configuration/
 
 resolver:
-  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/18/0.yaml
+  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/18/8.yaml
 
 extra-deps: [repa-3.4.1.4]
 
