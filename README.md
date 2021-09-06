@@ -2,7 +2,11 @@
 
 To run:
 
-    stack run
+    stack run -- [options]
+
+The test images for autolight were removed since they were copyrighted content.
+Only the Game of Life (life0) benchmarks can currently be run, unless you
+provide your own test images.
 
 ## How it works
 
