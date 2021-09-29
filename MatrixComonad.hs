@@ -3,16 +3,17 @@ module MatrixComonad (
     FocusedMatrix,
     Matrix,
     MatrixArray,
+    MatrixMassiv,
     MatrixParallel,
     MatrixVector,
     MNormal,
     MValid,
     MResult,
-    Shape,
     extract,
     extend,
     focus,
     fromArray,
+    fromMassiv,
     fromParallel,
     index,
     inside,
@@ -27,18 +28,21 @@ module MatrixComonad (
     mzipWith,
     readImage,
     toArray,
+    toMassiv,
     toParallel,
     vmData,
+    mmData,
     unfocus,
     writeGifAnim,
     writePng,
     MatrixComonad.zipWith
 ) where
 
-import Data.Array.Repa.Shape (addDim, zeroDim)
+import Data.Array.Repa.Shape
 import Matrix
 import MatrixVector (MatrixVector, readImage, vmData, writePng, writeGifAnim)
 import MatrixRepa (MatrixArray, MatrixParallel, fromArray, fromParallel, toArray, toParallel)
+import MatrixMassiv (MatrixMassiv, mmData, toMassiv, fromMassiv)
 
 data Matrix m r sh a => FocusedMatrix m r sh a = FocusedMatrix {
     unfocus :: m r sh a,
@@ -70,6 +74,6 @@ extend f (FocusedMatrix mat p) = FocusedMatrix
 index :: Matrix m r sh a => FocusedMatrix m r sh a -> sh -> a
 index (FocusedMatrix mat fp) p = mindex mat $ addDim fp p
 
-inside :: (Matrix m r sh a, Shape sh) => FocusedMatrix m r sh a -> sh -> Bool
+inside :: Matrix m r sh a => FocusedMatrix m r sh a -> sh -> Bool
 inside (FocusedMatrix mat fp) p = minside mat $ addDim fp p
 

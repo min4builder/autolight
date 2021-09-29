@@ -14,11 +14,10 @@ import Matrix
 
 data MatrixVector r sh a = MatrixVector { vmShape :: sh, vmData :: Vector a }
 
-instance MatrixImpl MatrixVector () sh a where
+instance Shape sh => MatrixImpl MatrixVector () sh a where
     mresult = id
-    mindex mat@(MatrixVector sh d) p
-        | minside mat p = d V.! (toIndex sh p)
-        | otherwise = undefined
+    minside (MatrixVector sh d) p = inShape sh p
+    mindex (MatrixVector sh d) p = d V.! (toIndex sh p)
     mrun f d = MatrixVector (vmShape d) $ generate (size $ vmShape d) (f d . fromIndex (vmShape d))
     mnew sh f = MatrixVector sh $ generate (size sh) (f . fromIndex sh)
     mmap f (MatrixVector sh d) = MatrixVector sh $ V.map f d
