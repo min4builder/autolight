@@ -11,7 +11,7 @@ build-type:          Simple
 
 executable coautolight
   main-is:             Main.hs
-  other-modules:       Matrix, MatrixComonad, MatrixLoad
-  build-depends:       base < 4.15, comonad, data-default, JuicyPixels, massiv, mtl, repa, vector, criterion
+  other-modules:       ComonadVector, ComonadRepa, ComonadMassiv, ComonadAccelerate, MatrixVector, MatrixRepa, MatrixMassiv, MatrixAccelerate, StencilsVector, StencilsRepa, StencilsMassiv, StencilsAccelerate, Shape, MatrixLoad
+  build-depends:       base < 4.15, accelerate, accelerate-io-vector, accelerate-llvm-native, mtl, data-default, JuicyPixels, massiv, repa, vector, criterion
   default-language:    Haskell2010
   ghc-options:         -O2 -fllvm -threaded

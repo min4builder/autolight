@@ -1,138 +1,92 @@
-{-# LANGUAGE BangPatterns, FlexibleContexts, GADTs #-}
+{-# LANGUAGE BangPatterns, FlexibleContexts #-}
 module Main where
 
-import Data.Array.Repa (D, U)
-import Data.Default (Default, def)
-import Data.List (foldl')
-import qualified Data.Massiv.Array as M (Array, Ix1)
-import Data.Vector (Vector)
-import Data.Vector.Unboxed (Unbox)
-import Data.Word (Word8)
-import Matrix
+import Data.Array.Accelerate as A (Word8, constant, toList, unit, use)
+import Data.Array.Accelerate.LLVM.Native (run)
+import Data.Array.Accelerate.IO.Data.Vector.Unboxed as A (fromUnboxed, toUnboxed)
+import Data.Array.Repa as R (Z(..), (:.)(..), fromUnboxed, toUnboxed)
+import Data.Massiv.Array (Array, Comp(Par), U, compute, fromList)
+import Data.Vector as V (toList)
+import Data.Vector.Generic (convert)
 import MatrixLoad
-import MatrixComonad as MC
+import qualified MatrixVector as MV
+import qualified ComonadVector as CV
+import qualified StencilsVector as SV
+import qualified MatrixRepa as MR
+import qualified ComonadRepa as CR
+import qualified StencilsRepa as SR
+import qualified MatrixMassiv as MM
+import qualified ComonadMassiv as CM
+import qualified StencilsMassiv as SM
+import qualified MatrixAccelerate as MA
+import qualified ComonadAccelerate as CA
+import qualified StencilsAccelerate as SA
 
 import Criterion.Main
-
-instance Default Bool where
-    def = False
-
-mget m p = if minside m p then mindex m p else def
-get m p = if inside m p then index m p else def
-
-gaussianBlur r = vertical . horizontal
-    where add !a !b = a + b
-          horizontal = extend $ \img -> foldl' add 0 [ gauss (fromIntegral x) * get img (x :. 0) | x <- [-3*(round r) .. 3*(round r)] ]
-          vertical = extend $ \img -> foldl' add 0 [ gauss (fromIntegral y) * get img (0 :. y) | y <- [-3*(round r) .. 3*(round r)] ]
-          gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
-
-gaussianBlur' r = vertical . horizontal
-    where add !a !b = a + b
-          horizontal = mrun $ \img (x :. y) ->
-              foldl' add 0 [ gauss (fromIntegral (x' - x)) * mget img (x' :. y) | x' <- [x - 3*(round r) .. x + 3*(round r)] ]
-          vertical = mrun $ \img (x :. y) ->
-              foldl' add 0 [ gauss (fromIntegral (y' - y)) * mget img (x :. y') | y' <- [y - 3*(round r) .. y + 3*(round r)] ]
-          gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
-
-gradient :: (Default a, Num a, Unbox a) => Focused r Dim2 a -> Focused (MResult r) Dim2 (a, a)
-gradient = extend $ \img ->
-    let v = extract img in (get img (1 :. 0) - v, get img (0 :. 1) - v)
-
-gradient' :: (Default a, Num a, Unbox a) => Matrix r Dim2 a -> Matrix (MResult r) Dim2 (a, a)
-gradient' = mrun $ \img (x :. y) ->
-    let v = mget img (x :. y) in (mget img ((x + 1) :. y) - v, mget img (x :. (y + 1)) - v)
-
-distance r = extend $ \img ->
-    minimum (r : [ sqrt (x*x + y*y) | x <- [-r .. r], y <- [-r .. r],
-        get img (round x :. round y) ])
-
-distance' r = mrun $ \img (x :. y) ->
-    minimum (r : [ sqrt (x'*x' + y'*y') | x' <- [(fromIntegral x) - r .. (fromIntegral x) + r], y' <- [(fromIntegral y) - r .. (fromIntegral y) + r],
-        mget img (round x' :. round y') ])
-
-autolight img = MC.zipWith (*) img $ gaussianBlur 1 shadow
-    where (w :. h) = msize $ unfocus img
-          blurr = minimum [fromIntegral w, fromIntegral h] / 16
-          distr = blurr / 2
-          distw = 0.01
-          (lx, ly) = (1, 1)
-
-          blurry = gaussianBlur blurr img
-          delta = MC.map (\(dx, dy) -> lx*dx + ly*dy) $ gradient blurry
-
-          dist = distance distr $ MC.map (< 0.5) img
-          mdist = MC.map (\v -> distw * ((1 / (1 + exp (-v * 6 / distr))) - 1)) dist
-          shadow = MC.map ((+ 0.8) . (* 0.2) . signum) $ MC.zipWith (+) delta mdist
-
-autolight' img = mzipWith (*) img $ gaussianBlur' 1 shadow
-    where (w :. h) = msize img
-          blurr = minimum [fromIntegral w, fromIntegral h] / 16
-          distr = blurr / 2
-          distw = 0.01
-          (lx, ly) = (1, 1)
-
-          blurry = gaussianBlur' blurr img
-          delta = mmap (\(dx, dy) -> lx*dx + ly*dy) $ gradient' blurry
-
-          dist = distance' distr $ mmap (< 0.5) img
-          mdist = mmap (\v -> distw * ((1 / (1 + exp (-v * 6 / distr))) - 1)) dist
-          shadow = mmap ((+ 0.8) . (* 0.2) . signum) $ mzipWith (+) delta mdist
-
-gameOfLife = extend $ \img ->
-    let n = sum [ if get img (x :. y) then 1 else 0 | x <- [-1 .. 1], y <- [-1 .. 1], (x, y) /= (0, 0) ] in
-        n == 3 || (extract img && n == 2)
-
-gameOfLife' = mrun $ \img (x :. y) ->
-    let n = sum [ if mget img ((x + dx) :. (y + dy)) then 1 else 0 | dx <- [-1 .. 1], dy <- [-1 .. 1], (dx, dy) /= (0, 0) ] in
-        n == 3 || (mget img (x :. y) && n == 2)
 
 times 0 f !a = a
 times !n f !a = times (n - 1) f (f a)
 
-toF :: Matrix r sh Word8 -> Matrix (MResult r) sh Float
-toF = mmap ((/ 256) . fromIntegral)
-fromF :: Matrix r sh Float -> Matrix (MResult r) sh Word8
-fromF = mmap (toEnum . round . (* 255) . clamp 0 1)
-toB = mmap (> 0.5) . toF
-fromB = fromF . mmap (\v -> if v then 1 else 0)
+toF :: MV.Matrix () sh Word8 -> MV.Matrix () sh Float
+toF = MV.mmap ((/ 256) . fromIntegral)
+toB :: MV.Matrix () sh Word8 -> MV.Matrix () sh Bool
+toB = MV.mmap (> 0.5) . toF
+toBa :: MA.Matrix () sh Word8 -> MA.Matrix () sh Bool
+toBa = MA.mmap (MA.> 128)
+fromB = MA.mmap (\v -> MA.ifThenElse v (1 :: MA.Exp Int) 0)
 clamp a b c
     | c < a = a
     | c > b = b
     | otherwise = c
 
-vmData :: Matrix Vector sh a -> Vector a
-vmData (MatrixVector sh v) = v
-mmData :: Matrix (M.Array r M.Ix1) sh a -> M.Array r M.Ix1 a
-mmData (MatrixMassiv sh v) = v
+toRepa (MV.Matrix sh v) = MR.Matrix sh $ R.fromUnboxed (Z :. MR.toLength sh) $ convert v
+fromRepa d = MV.Matrix sh $ convert $ R.toUnboxed v
+    where (MR.Matrix sh !v) = MR.evaluate d
+toMassiv :: MM.Unbox a => MV.Matrix () sh a -> MM.Matrix U sh a
+toMassiv (MV.Matrix sh v) = MM.Matrix sh $ fromList Par $ V.toList v
+toAccelerate (MV.Matrix (w, h) v) = MA.Matrix (constant w, constant h) $ use $ A.fromUnboxed $ convert v
+fromAccelerate (MA.Matrix (w, h) v) = MV.Matrix (head $ A.toList $ run $ unit w, head $ A.toList $ run $ unit h) $ convert $ A.toUnboxed $ run v
+
+vmData (MV.Matrix sh v) = v
+mmData :: (MM.Load r MM.Ix1 a, MM.Unbox a) => MM.Matrix r sh a -> Array U MM.Ix1 a
+mmData (MM.Matrix sh v) = compute v
 
 main = do
     testsmall <- readImage "testsmall.png"
     testbig <- readImage "testbig.png"
     life0 <- readImage "life0.png"
     defaultMain [
-        bgroup "MatrixVector" [
-            bench "testsmall" $ nf (vmData . fromF . unfocus . autolight) $ focus $ toF testsmall,
-            bench "testsmall'" $ nf (vmData . fromF . autolight') $ toF testsmall,
-            bench "testbig" $ nf (vmData . fromF . unfocus . autolight) $ focus $ toF testbig,
-            bench "testbig'" $ nf (vmData . fromF . autolight') $ toF testbig,
-            bench "life0" $ nf (vmData . fromB . unfocus . times 16 gameOfLife) $ focus $ toB life0,
-            bench "life0'" $ nf (vmData . fromB . times 16 gameOfLife') $ toB life0
+        bgroup "Vector" [
+            bench "testsmall" $ nf (vmData . CV.unfocus . SV.autolight) $ CV.focus $ toF testsmall,
+            bench "testsmall'" $ nf (vmData . SV.autolight') $ toF testsmall,
+            bench "testbig" $ nf (vmData . CV.unfocus . SV.autolight) $ CV.focus $ toF testbig,
+            bench "testbig'" $ nf (vmData . SV.autolight') $ toF testbig,
+            bench "life0" $ nf (vmData . CV.unfocus . times 16 SV.gameOfLife) $ CV.focus $ toB life0,
+            bench "life0'" $ nf (vmData . times 16 SV.gameOfLife') $ toB life0
             ],
-        bgroup "MatrixParallel" [
-            bench "testsmall" $ nf (vmData . fromF . fromParallel . unfocus . autolight) $ focus $ mresult $ toParallel $ toF testsmall,
-            bench "testsmall'" $ nf (vmData . fromF . fromParallel . autolight') $ mresult $ toParallel $ toF testsmall,
-            bench "testbig" $ nf (vmData . fromF . fromParallel . unfocus . autolight) $ focus $ mresult $ toParallel $ toF testbig,
-            bench "testbig'" $ nf (vmData . fromF . fromParallel . autolight') $ mresult $ toParallel $ toF testbig,
-            bench "life0" $ nf (vmData . fromB . fromParallel . unfocus . times 16 gameOfLife) $ focus $ mresult $ toParallel $ toB life0,
-            bench "life0'" $ nf (vmData . fromB . fromParallel . times 16 gameOfLife') $ mresult $ toParallel $ toB life0
+        bgroup "Repa" [
+            bench "testsmall" $ nf (vmData . fromRepa . CR.unfocus . SR.autolight) $ CR.focus $ MR.mresult $ toRepa $ toF testsmall,
+            bench "testsmall'" $ nf (vmData . fromRepa . SR.autolight') $ MR.mresult $ toRepa $ toF testsmall,
+            bench "testbig" $ nf (vmData . fromRepa . CR.unfocus . SR.autolight) $ CR.focus $ MR.mresult $ toRepa $ toF testbig,
+            bench "testbig'" $ nf (vmData . fromRepa . SR.autolight') $ MR.mresult $ toRepa $ toF testbig,
+            bench "life0" $ nf (vmData . fromRepa . CR.unfocus . times 16 SR.gameOfLife) $ CR.focus $ MR.mresult $ toRepa $ toB life0,
+            bench "life0'" $ nf (vmData . fromRepa . times 16 SR.gameOfLife') $ MR.mresult $ toRepa $ toB life0
             ],
-        bgroup "MatrixMassiv" [
-            bench "testsmall" $ whnf (mmData . fromF . autolight') $ toMassiv $ toF testsmall,
-            bench "testsmall" $ whnf (mmData . fromF . unfocus . autolight) $ focus $ toMassiv $ toF testsmall,
-            bench "testbig" $ whnf (mmData . fromF . unfocus . autolight) $ focus $ toMassiv $ toF testbig,
-            bench "testbig" $ whnf (mmData . fromF . autolight') $ toMassiv $ toF testbig,
-            bench "life0" $ whnf (mmData . fromB . unfocus . times 16 gameOfLife) $ focus $ mresult $ toMassiv $ toB life0,
-            bench "life0'" $ whnf (mmData . fromB . times 16 gameOfLife') $ mresult $ toMassiv $ toB life0
+        bgroup "Massiv" [
+            bench "testsmall" $ whnf (mmData . CM.unfocus . SM.autolight) $ CM.focus $ toMassiv $ toF testsmall,
+            bench "testsmall'" $ whnf (mmData . SM.autolight') $ toMassiv $ toF testsmall,
+            bench "testbig" $ whnf (mmData . CM.unfocus . SM.autolight) $ CM.focus $ toMassiv $ toF testbig,
+            bench "testbig'" $ whnf (mmData . SM.autolight') $ toMassiv $ toF testbig,
+            bench "life0" $ whnf (mmData . CM.unfocus . times 16 SM.gameOfLife) $ CM.focus $ MM.mresult $ toMassiv $ toB life0,
+            bench "life0'" $ whnf (mmData . times 16 SM.gameOfLife') $ MM.mresult $ toMassiv $ toB life0
+            ],
+        bgroup "Accelerate" [
+            bench "testsmall" $ whnf (vmData . fromAccelerate . CA.unfocus . SA.autolight) $ CA.focus $ toAccelerate $ toF testsmall,
+            bench "testsmall'" $ whnf (vmData . fromAccelerate . SA.autolight') $ toAccelerate $ toF testsmall,
+            bench "testbig" $ whnf (vmData . fromAccelerate . CA.unfocus . SA.autolight) $ CA.focus $ toAccelerate $ toF testbig,
+            bench "testbig'" $ whnf (vmData . fromAccelerate . SA.autolight') $ toAccelerate $ toF testbig,
+            bench "life0" $ whnf (vmData . fromAccelerate . fromB . CA.unfocus . times 16 SA.gameOfLife) $ CA.focus $ MA.mresult $ toBa $ toAccelerate life0,
+            bench "life0'" $ whnf (vmData . fromAccelerate . fromB . times 16 SA.gameOfLife') $ MA.mresult $ toBa $ toAccelerate life0
             ]
         ]
 

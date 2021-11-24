@@ -1,22 +1,5 @@
-{-# LANGUAGE BangPatterns, FlexibleContexts, FlexibleInstances, TypeFamilies, GADTs #-}
-module Matrix (
-    Dim(..), Dim1, Dim2, Dim3, Dim4, Dim5,
-    Matrix(..),
-    MNormal,
-    MResult,
-    Shape,
-    fromMassiv,
-    fromParallel,
-    toMassiv,
-    toParallel,
-    mindex,
-    minside,
-    mmap,
-    mresult,
-    mrun,
-    msize,
-    mzipWith,
-) where
+{-# LANGUAGE BangPatterns, FlexibleContexts, FlexibleInstances, TypeFamilies, TypeOperators, GADTs #-}
+module Matrix where
 
 import Control.Monad.Identity (runIdentity)
 import qualified Data.Array.Repa as R
@@ -26,12 +9,12 @@ import qualified Data.Vector.Generic as VG (Vector)
 import Data.Vector.Unboxed (Unbox)
 import Debug.Trace (traceShowId)
 
-data Dim sh = !Int :. !sh deriving (Eq, Show)
+data k :. sh = !k :. !sh deriving (Eq, Show)
 type Dim1 = Int
-type Dim2 = Dim Dim1
-type Dim3 = Dim Dim2
-type Dim4 = Dim Dim3
-type Dim5 = Dim Dim4
+type Dim2 = Int :. Dim1
+type Dim3 = Int :. Dim2
+type Dim4 = Int :. Dim3
+type Dim5 = Int :. Dim4
 
 class (Ord sh, Num sh) => Shape sh where
     toIndex :: sh -> sh -> Int
@@ -43,13 +26,13 @@ instance Shape Int where
     fromIndex m n = n
     size = id
 
-instance Ord sh => Ord (Dim sh) where
+instance (Integral k, Ord sh) => Ord (k :. sh) where
     compare (a :. r) (b :. s)
         | a < b && r < s = LT
         | a == b && r == s = EQ
         | otherwise = GT
 
-instance Num sh => Num (Dim sh) where
+instance (Integral k, Num sh) => Num (k :. sh) where
     (+) (a :. r) (b :. s) = (a + b) :. (r + s)
     (*) (a :. r) (b :. s) = (a * b) :. (r * s)
     negate (a :. r) = (-a) :. (-r)
@@ -57,14 +40,13 @@ instance Num sh => Num (Dim sh) where
     signum (a :. r) = signum a :. signum r
     fromInteger 0 = 0 :. 0
 
-instance Shape sh => Shape (Dim sh) where
+instance (Shape sh) => Shape (Int :. sh) where
     toIndex (a :. r) (b :. s) = b + a * toIndex r s
     fromIndex (a :. r) n = (n `mod` a) :. fromIndex r (n `div` a)
     size (a :. r) = a * size r
 
 data Matrix r sh a where
     MatrixVector :: VG.Vector Vector a => sh -> Vector a -> Matrix Vector sh a
---    MatrixArray :: Array r sh a -> Matrix (Array r) sh a
     MatrixParallel :: (Evaluator (R.Array r R.DIM1), R.Source r a) => sh -> R.Array r R.DIM1 a -> Matrix (R.Array r R.DIM1) sh a
     MatrixMassiv :: M.Source r M.Ix1 a => sh -> M.Vector r a -> Matrix (M.Array r M.Ix1) sh a
 
