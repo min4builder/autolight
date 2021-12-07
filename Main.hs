@@ -2,7 +2,7 @@
 module Main where
 
 import Data.Array.Accelerate as A (Word8, constant, toList, unit, use)
-import Data.Array.Accelerate.LLVM.Native (run)
+import Data.Array.Accelerate.LLVM.Native (run1)
 import Data.Array.Accelerate.IO.Data.Vector.Unboxed as A (fromUnboxed, toUnboxed)
 import Data.Array.Repa as R (Z(..), (:.)(..), fromUnboxed, toUnboxed)
 import Data.Massiv.Array (Array, Comp(Par), U, compute, fromList)
@@ -31,8 +31,6 @@ toF :: MV.Matrix () sh Word8 -> MV.Matrix () sh Float
 toF = MV.mmap ((/ 256) . fromIntegral)
 toB :: MV.Matrix () sh Word8 -> MV.Matrix () sh Bool
 toB = MV.mmap (> 0.5) . toF
-toBa :: MA.Matrix () sh Word8 -> MA.Matrix () sh Bool
-toBa = MA.mmap (MA.> 128)
 fromB = MA.mmap (\v -> MA.ifThenElse v (1 :: MA.Exp Int) 0)
 clamp a b c
     | c < a = a
@@ -44,8 +42,8 @@ fromRepa d = MV.Matrix sh $ convert $ R.toUnboxed v
     where (MR.Matrix sh !v) = MR.evaluate d
 toMassiv :: MM.Unbox a => MV.Matrix () sh a -> MM.Matrix U sh a
 toMassiv (MV.Matrix sh v) = MM.Matrix sh $ fromList Par $ V.toList v
-toAccelerate (MV.Matrix (w, h) v) = MA.Matrix (constant w, constant h) $ use $ A.fromUnboxed $ convert v
-fromAccelerate (MA.Matrix (w, h) v) = MV.Matrix (head $ A.toList $ run $ unit w, head $ A.toList $ run $ unit h) $ convert $ A.toUnboxed $ run v
+runAccelerate f (MV.Matrix sh _) = \(MV.Matrix sh v) -> MV.Matrix sh $ convert $ A.toUnboxed $ f' $ A.fromUnboxed $ convert v
+    where f' = run1 ((\(MA.Matrix sh v) -> v) . f . MA.Matrix sh)
 
 vmData (MV.Matrix sh v) = v
 mmData :: (MM.Load r MM.Ix1 a, MM.Unbox a) => MM.Matrix r sh a -> Array U MM.Ix1 a
@@ -81,12 +79,10 @@ main = do
             bench "life0'" $ whnf (mmData . times 16 SM.gameOfLife') $ MM.mresult $ toMassiv $ toB life0
             ],
         bgroup "Accelerate" [
-            bench "testsmall" $ whnf (vmData . fromAccelerate . CA.unfocus . SA.autolight) $ CA.focus $ toAccelerate $ toF testsmall,
-            bench "testsmall'" $ whnf (vmData . fromAccelerate . SA.autolight') $ toAccelerate $ toF testsmall,
-            bench "testbig" $ whnf (vmData . fromAccelerate . CA.unfocus . SA.autolight) $ CA.focus $ toAccelerate $ toF testbig,
-            bench "testbig'" $ whnf (vmData . fromAccelerate . SA.autolight') $ toAccelerate $ toF testbig,
-            bench "life0" $ whnf (vmData . fromAccelerate . fromB . CA.unfocus . times 16 SA.gameOfLife) $ CA.focus $ MA.mresult $ toBa $ toAccelerate life0,
-            bench "life0'" $ whnf (vmData . fromAccelerate . fromB . times 16 SA.gameOfLife') $ MA.mresult $ toBa $ toAccelerate life0
+            bench "testsmall" $ nf (vmData . runAccelerate (CA.unfocus . SA.autolight . CA.focus) testsmall) $ toF testsmall,
+            bench "testsmall'" $ nf (vmData . runAccelerate (SA.autolight') testsmall) $ toF testsmall,
+            bench "testbig" $ nf (vmData . runAccelerate (CA.unfocus . SA.autolight . CA.focus) testbig) $ toF testbig,
+            bench "testbig'" $ nf (vmData . runAccelerate (SA.autolight') testbig) $ toF testbig
             ]
         ]
 
