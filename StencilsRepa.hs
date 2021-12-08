@@ -31,12 +31,12 @@ gaussianBlur' r = vertical . horizontal
           gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
 
 {-# INLINEABLE gradient #-}
-gradient :: (Default a, Evaluator r, Num a, Source r a, Unbox a) => Focused r Dim2 a -> Focused (MResult Matrix) Dim2 (a, a)
+gradient :: (Default a, Evaluator r, Num a, Source r a, Unbox a) => Focused r Dim2 a -> Focused MResult Dim2 (a, a)
 gradient = extend $ \img ->
     let v = extract img in (get img (1, 0) - v, get img (0, 1) - v)
 
 {-# INLINEABLE gradient' #-}
-gradient' :: (Default a, Evaluator r, Num a, Source r a, Unbox a) => Matrix r Dim2 a -> Matrix (MResult Matrix) Dim2 (a, a)
+gradient' :: (Default a, Evaluator r, Num a, Source r a, Unbox a) => Matrix r Dim2 a -> Matrix MResult Dim2 (a, a)
 gradient' = mrun $ \img (x, y) ->
     let v = mget img (x, y) in (mget img (x + 1, y) - v, mget img (x, y + 1) - v)
 
@@ -81,13 +81,13 @@ autolight' img = mzipWith (*) img $ gaussianBlur' 1 shadow
           shadow = mmap ((+ 0.8) . (* 0.2) . signum) $ mzipWith (+) delta mdist
 
 {-# INLINEABLE gameOfLife #-}
-gameOfLife :: (Evaluator r, Source r Bool) => Focused r Dim2 Bool -> Focused (MResult Matrix) Dim2 Bool
+gameOfLife :: (Evaluator r, Source r Bool) => Focused r Dim2 Bool -> Focused MResult Dim2 Bool
 gameOfLife = extend $ \img ->
     let n = sum [ if get img (x, y) then 1 else 0 | x <- [-1 .. 1], y <- [-1 .. 1], (x, y) /= (0, 0) ] :: Int in
         n == 3 || (extract img && n == 2)
 
 {-# INLINEABLE gameOfLife' #-}
-gameOfLife' :: Evaluator r => Matrix r Dim2 Bool -> Matrix (MResult Matrix) Dim2 Bool
+gameOfLife' :: Evaluator r => Matrix r Dim2 Bool -> Matrix MResult Dim2 Bool
 gameOfLife' = mrun $ \img (x, y) ->
     let n = sum [ if mget img (x + dx, y + dy) then 1 else 0 | dx <- [-1 .. 1], dy <- [-1 .. 1], (dx, dy) /= (0, 0) ] :: Int in
         n == 3 || (mget img (x, y) && n == 2)

@@ -19,7 +19,7 @@ mget m p = if minside m (lift p) then mindex m (lift p) else def
 get m p = if inside m (lift p) then index m (lift p) else def
 
 {-# INLINEABLE gaussianBlur #-}
-gaussianBlur :: Float -> Focused r Dim2 Float -> Focused (MResult Matrix) Dim2 Float
+gaussianBlur :: Float -> Focused r Dim2 Float -> Focused MResult Dim2 Float
 gaussianBlur r = vertical . horizontal
     where add !a !b = a + b
           horizontal = extend $ \img -> foldl' add 0 [ constant (gauss $ P.fromIntegral x) * get img (x :: Int, 0 :: Int) | x <- [-3*(P.round r) .. 3*(P.round r)] ]
@@ -27,7 +27,7 @@ gaussianBlur r = vertical . horizontal
           gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
 
 {-# INLINEABLE gaussianBlur' #-}
-gaussianBlur' :: Float -> Matrix r Dim2 Float -> Matrix (MResult Matrix) Dim2 Float
+gaussianBlur' :: Float -> Matrix r Dim2 Float -> Matrix MResult Dim2 Float
 gaussianBlur' r = vertical . horizontal
     where add !a !b = a + b
           horizontal = mrun $ \img xy -> let (x, y) = unlift xy in
@@ -37,12 +37,12 @@ gaussianBlur' r = vertical . horizontal
           gauss n = exp (-(n**2 / (2 * r**2))) / sqrt (2 * pi * r**2)
 
 {-# INLINEABLE gradient #-}
-gradient :: Focused r Dim2 Float -> Focused (MResult Matrix) Dim2 (Float, Float)
+gradient :: Focused r Dim2 Float -> Focused MResult Dim2 (Float, Float)
 gradient = extend $ \img ->
     let v = extract img in lift (get img (1 :: Int, 0 :: Int) - v, get img (0 :: Int, 1 :: Int) - v)
 
 {-# INLINEABLE gradient' #-}
-gradient' :: Matrix r Dim2 Float -> Matrix (MResult Matrix) Dim2 (Float, Float)
+gradient' :: Matrix r Dim2 Float -> Matrix MResult Dim2 (Float, Float)
 gradient' = mrun $ \img xy -> let (x, y) = unlift xy in
     let v = mget img (x :: Exp Int, y :: Exp Int) in lift (mget img (x + 1, y) - v, mget img (x, y + 1) - v)
 
@@ -87,13 +87,13 @@ autolight' img = mzipWith (*) img $ gaussianBlur' 1 shadow
           shadow = mmap ((+ 0.8) . (* 0.2) . signum) $ mzipWith (+) delta mdist
 
 {-# INLINEABLE gameOfLife #-}
-gameOfLife :: Focused r Dim2 Bool -> Focused (MResult Matrix) Dim2 Bool
+gameOfLife :: Focused r Dim2 Bool -> Focused MResult Dim2 Bool
 gameOfLife = extend $ \img ->
     let n = sum [ if get img (x, y) then 1 :: Exp Int else 0 | x <- [-1 :: Int .. 1], y <- [-1 :: Int .. 1], (x, y) P./= (0, 0) ] in
         n == 3 || (extract img && n == 2)
 
 {-# INLINEABLE gameOfLife' #-}
-gameOfLife' :: Matrix r Dim2 Bool -> Matrix (MResult Matrix) Dim2 Bool
+gameOfLife' :: Matrix r Dim2 Bool -> Matrix MResult Dim2 Bool
 gameOfLife' = mrun $ \img xy -> let (x, y) = unlift xy :: (Exp Int, Exp Int) in
     let n = sum [ if mget img (x + constant dx, y + constant dy) then 1 :: Exp Int else 0 | dx <- [-1 :: Int .. 1], dy <- [-1 :: Int .. 1], (dx, dy) P./= (0, 0) ] in
         n == 3 || (mget img (x, y) && n == 2)

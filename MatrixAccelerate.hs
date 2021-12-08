@@ -60,10 +60,8 @@ instance Shape (Int, Int) where
     off (s, t) (x, y) = (s + x, t + y)
 
 data Matrix r sh a = Matrix sh (Acc (Array DIM1 a))
-type family MResult (m :: * -> * -> * -> *) :: *
-type instance MResult Matrix = ()
-type family MNormal (m :: * -> * -> * -> *) :: *
-type instance MNormal Matrix = ()
+type MResult = ()
+type MNormal = ()
 
 mindex :: (Elt a, Elt sh, Shape (Exp sh), SInt (Exp sh) ~ Exp Int) => Matrix r sh a -> Exp sh -> Exp a
 mindex (Matrix sh v) p = v ! lift (Z :. toIndex (constant sh) p)
@@ -73,19 +71,19 @@ minside :: (Elt sh, Shape (Exp sh)) => Matrix r sh a -> Exp sh -> Exp Bool
 minside v = sinside (constant $ msize v)
 {-# INLINEABLE minside #-}
 
-mmap :: (Elt a, Elt b) => (Exp a -> Exp b) -> Matrix r sh a -> Matrix (MResult Matrix) sh b
+mmap :: (Elt a, Elt b) => (Exp a -> Exp b) -> Matrix r sh a -> Matrix MResult sh b
 mmap f (Matrix sh v) = Matrix sh $ map f v
 
 mresult :: Matrix () sh a -> Matrix () sh a
 mresult = id
 
-mrun :: (Elt a, Elt b, Elt sh, Shape sh, Shape (Exp sh), SInt sh ~ Int, SInt (Exp sh) ~ Exp Int) => (Matrix (MNormal Matrix) sh a -> Exp sh -> Exp b) -> Matrix r sh a -> Matrix (MResult Matrix) sh b
+mrun :: (Elt a, Elt b, Elt sh, Shape sh, Shape (Exp sh), SInt sh ~ Int, SInt (Exp sh) ~ Exp Int) => (Matrix MNormal sh a -> Exp sh -> Exp b) -> Matrix r sh a -> Matrix MResult sh b
 mrun f (Matrix sh d) = Matrix sh $ generate (lift $ Z :. toLength sh) $ (\(Z :. ix) -> f (Matrix sh v) $ fromIndex (constant sh) ix) . unlift
     where v = compute d
 
 msize :: Matrix r sh a -> sh
 msize (Matrix sh a) = sh
 
-mzipWith :: (Elt a, Elt b, Elt c, Shape sh) => (Exp a -> Exp b -> Exp c) -> Matrix r sh a -> Matrix s sh b -> Matrix (MResult Matrix) sh c
+mzipWith :: (Elt a, Elt b, Elt c, Shape sh) => (Exp a -> Exp b -> Exp c) -> Matrix r sh a -> Matrix s sh b -> Matrix MResult sh c
 mzipWith f (Matrix sha a) (Matrix shb b) = Matrix sha $ zipWith f a b
 

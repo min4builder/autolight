@@ -58,6 +58,3 @@ instance Shape (Int, Int, Int, Int, Int) where
     szip f (s, t, u, v, q) (x, y, z, w, ww) = (f s x, f t y, f u z, f v w, f q ww)
     sall f (s, t, u, v, q) (x, y, z, w, ww) = f s x && f t y && f u z && f v w && f q ww
 
-type family MResult (m :: * -> * -> * -> *) :: *
-type family MNormal (m :: * -> * -> * -> *) :: *
-
