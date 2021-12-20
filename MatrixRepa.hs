@@ -24,8 +24,8 @@ data Matrix r sh a = Matrix sh (Array r DIM1 a)
 type MNormal = U
 type MResult = D
 
-mindex :: (Source r a, Shape sh) => Matrix r sh a -> sh -> a
-mindex (Matrix sh v) p = v ! (Z :. toIndex sh p)
+mindex :: (Shape sh, Unbox a) => Matrix MNormal sh a -> sh -> a
+mindex (Matrix sh v) p = unsafeIndex v (Z :. toIndex sh p)
 {-# INLINEABLE mindex #-}
 
 minside :: Shape sh => Matrix r sh a -> sh -> Bool

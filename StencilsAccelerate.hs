@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns, FlexibleContexts, FlexibleInstances, RebindableSyntax, TypeFamilies #-}
 module StencilsAccelerate where
 
+import Data.Array.Accelerate (Word8)
 import Data.Default (Default, def)
 import Data.List (foldl')
 import Data.Vector.Unboxed (Unbox)
@@ -11,6 +12,9 @@ import qualified Prelude as P
 
 instance Default (Exp Bool) where
     def = constant False
+
+instance Default (Exp Word8) where
+    def = 0
 
 instance Default (Exp Float) where
     def = 0.0
@@ -87,14 +91,14 @@ autolight' img = mzipWith (*) img $ gaussianBlur' 1 shadow
           shadow = mmap ((+ 0.8) . (* 0.2) . signum) $ mzipWith (+) delta mdist
 
 {-# INLINEABLE gameOfLife #-}
-gameOfLife :: Focused r Dim2 Bool -> Focused MResult Dim2 Bool
+gameOfLife :: Focused r Dim2 Word8 -> Focused MResult Dim2 Word8
 gameOfLife = extend $ \img ->
-    let n = sum [ if get img (x, y) then 1 :: Exp Int else 0 | x <- [-1 :: Int .. 1], y <- [-1 :: Int .. 1], (x, y) P./= (0, 0) ] in
-        n == 3 || (extract img && n == 2)
+    let n = sum [ get img (x, y) | x <- [-1 :: Int .. 1], y <- [-1 :: Int .. 1], (x, y) P./= (0, 0) ] in
+        if n == 3 || (extract img == 1 && n == 2) then 1 else 0
 
 {-# INLINEABLE gameOfLife' #-}
-gameOfLife' :: Matrix r Dim2 Bool -> Matrix MResult Dim2 Bool
+gameOfLife' :: Matrix r Dim2 Word8 -> Matrix MResult Dim2 Word8
 gameOfLife' = mrun $ \img xy -> let (x, y) = unlift xy :: (Exp Int, Exp Int) in
-    let n = sum [ if mget img (x + constant dx, y + constant dy) then 1 :: Exp Int else 0 | dx <- [-1 :: Int .. 1], dy <- [-1 :: Int .. 1], (dx, dy) P./= (0, 0) ] in
-        n == 3 || (mget img (x, y) && n == 2)
+    let n = sum [ mget img (x + constant dx, y + constant dy) | dx <- [-1 :: Int .. 1], dy <- [-1 :: Int .. 1], (dx, dy) P./= (0, 0) ] in
+        if n == 3 || (mget img (x, y) == 1 && n == 2) then 1 else 0
 

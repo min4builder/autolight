@@ -6,7 +6,7 @@ module MatrixVector (
     Unbox,
 ) where
 
-import Data.Vector as V (Vector, (!), convert, fromList, generate, map, toList, zipWith)
+import Data.Vector as V (Vector, convert, fromList, generate, map, toList, unsafeIndex, zipWith)
 import Data.Vector.Unboxed (Unbox)
 import Shape
 
@@ -14,8 +14,8 @@ data Matrix r sh a = Matrix sh (Vector a)
 type MNormal = ()
 type MResult = ()
 
-mindex :: Shape sh => Matrix r sh a -> sh -> a
-mindex (Matrix sh v) p = v V.! (toIndex sh p)
+mindex :: Shape sh => Matrix MNormal sh a -> sh -> a
+mindex (Matrix sh v) p = unsafeIndex v (toIndex sh p)
 {-# INLINEABLE mindex #-}
 
 minside :: Shape sh => Matrix r sh a -> sh -> Bool

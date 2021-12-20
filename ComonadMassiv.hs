@@ -18,13 +18,13 @@ zipWith f (Focused a _) (Focused b c) = Focused (mzipWith f a b) c
 map :: Source r Ix1 a => (a -> b) -> Focused r sh a -> Focused MResult sh b
 map f (Focused mat c) = Focused (mmap f mat) c
 
-extract :: (Shape sh, Source r Ix1 a) => Focused r sh a -> a
+extract :: (Shape sh, Unbox a) => Focused MNormal sh a -> a
 extract (Focused mat p) = mindex mat p
 
 extend :: (Shape sh, Source r Ix1 a, Unbox a) => (Focused MNormal sh a -> b) -> Focused r sh a -> Focused MResult sh b
 extend f (Focused mat p) = Focused (mrun (\mat p -> f $ Focused mat p) mat) p
 
-index :: (Shape sh, Source r Ix1 a) => Focused r sh a -> sh -> a
+index :: (Shape sh, Unbox a) => Focused MNormal sh a -> sh -> a
 index (Focused mat fp) p = mindex mat (fp `off` p)
 {-# INLINEABLE index #-}
 

@@ -4,7 +4,7 @@ module MatrixMassiv (
     Dim1, Dim2, Dim3, Dim4, Dim5,
     zero, toIndex, fromIndex, toLength, sinside, off,
     mindex, minside, mmap, mresult, mrun, msize, mzipWith,
-    Ix1, Load, Source, Unbox,
+    Ix1, Load, Manifest, Source, Unbox,
 ) where
 
 import Control.Monad.Identity (runIdentity)
@@ -16,8 +16,8 @@ data Matrix r sh a = Matrix sh (Array r Ix1 a)
 type MNormal = U
 type MResult = D
 
-mindex :: (Shape sh, Source r Ix1 a) => Matrix r sh a -> sh -> a
-mindex (Matrix sh v) p = evaluate' v $ toIndex sh p
+mindex :: (Shape sh, Unbox a) => Matrix U sh a -> sh -> a
+mindex (Matrix sh v) p = index' v $ toIndex sh p
 {-# INLINEABLE mindex #-}
 
 minside :: Shape sh => Matrix r sh a -> sh -> Bool
